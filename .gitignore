@@ -1,0 +1,31 @@
+# Environment variables and secrets
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+*.cert
+sql.txt
+
+# Dependencies
+node_modules/
+dist/
+build/
+
+# Database dumps, backups, and temporary query files
+*.dump
+*.sql.bak
+*.sqlite
+*.sqlite3
+
+# Logs and test coverage
+logs/
+*.log
+coverage/
+
+# OS and IDE metadata
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
+

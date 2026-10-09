@@ -1,0 +1,20 @@
+# Environment variables and secrets
+node_modules/
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+*.cert
+sql.txt
+
+# Database dumps and backups
+*.dump
+*.sql.bak
+*.sqlite
+*.sqlite3
+
+# Logs and test coverage
+logs/
+*.log
+coverage/
