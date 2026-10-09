@@ -23,6 +23,7 @@ const envSchema = z.object({
 
 
   CORS_ORIGIN: z.string().trim().min(1).default("http://localhost:5173"),
+  TRUST_PROXY: z.string().trim().optional(),
 });
 
 function validateEnv() {

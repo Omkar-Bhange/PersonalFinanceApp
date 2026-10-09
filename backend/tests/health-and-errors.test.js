@@ -89,5 +89,44 @@ describe("Health Routing, 404 Catch-All & Authentication Middleware", () => {
       });
     });
   });
+
+  describe("Security Headers & Environment Protections", () => {
+    it("should include standard security headers via Helmet", async () => {
+      const res = await request(app).get("/api/v1/health");
+      expect(res.status).toBe(200);
+      expect(res.headers["x-content-type-options"]).toBe("nosniff");
+      expect(res.headers["cross-origin-resource-policy"]).toBe("cross-origin");
+    });
+  });
+
+  describe("Test Database Guard Unit Verification", () => {
+    const { assertTestDatabase } = require("./helpers/testDbGuard");
+    const env = require("../src/config/env");
+
+    it("should pass when DB_NAME points to isolated test database", () => {
+      expect(() => assertTestDatabase()).not.toThrow();
+    });
+
+    it("should throw safety intercept when DB_NAME points to development database", () => {
+      const originalDb = env.DB_NAME;
+      try {
+        env.DB_NAME = "personal_finance_db";
+        expect(() => assertTestDatabase()).toThrow(/SAFETY INTERCEPT/);
+      } finally {
+        env.DB_NAME = originalDb;
+      }
+    });
+
+    it("should throw safety intercept when DB_NAME does not contain test", () => {
+      const originalDb = env.DB_NAME;
+      try {
+        env.DB_NAME = "production_db";
+        expect(() => assertTestDatabase()).toThrow(/SAFETY INTERCEPT/);
+      } finally {
+        env.DB_NAME = originalDb;
+      }
+    });
+  });
 });
+
 

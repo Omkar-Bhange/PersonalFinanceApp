@@ -13,7 +13,16 @@ const lendingRoutes = require("./routes/lendingRoutes");
 
 const app = express();
 
-app.use(helmet());
+if (env.TRUST_PROXY) {
+  const proxyVal = env.TRUST_PROXY === "true" ? 1 : !isNaN(Number(env.TRUST_PROXY)) ? Number(env.TRUST_PROXY) : env.TRUST_PROXY;
+  app.set("trust proxy", proxyVal);
+}
+
+app.use(
+  helmet({
+    crossOriginResourcePolicy: { policy: "cross-origin" },
+  })
+);
 
 app.use(
   cors({
