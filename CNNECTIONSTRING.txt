@@ -1,0 +1,8 @@
+CONNECTION LINK : postgresql://neondb_owner:npg_OtlgxAXzD1j0@ep-summer-mouse-b4jt93rz-pooler.c-6.us-east-2.aws.neon.tech/neondb?sslmode=require&channel_binding=require
+
+PGHOST='ep-summer-mouse-b4jt93rz-pooler.c-6.us-east-2.aws.neon.tech'
+PGDATABASE='neondb'
+PGUSER='neondb_owner'
+PGPASSWORD='npg_OtlgxAXzD1j0'
+PGSSLMODE='require'
+PGCHANNELBINDING='require'
