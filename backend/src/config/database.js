@@ -2,6 +2,8 @@
 const { Pool } = require("pg");
 const env = require("./env");
 
+const isCloudOrSsl = env.DB_SSL || (env.DB_HOST && !["localhost", "127.0.0.1"].includes(env.DB_HOST));
+
 const pool = new Pool({
   host: env.DB_HOST,
   port: env.DB_PORT,
@@ -11,6 +13,7 @@ const pool = new Pool({
   connectionTimeoutMillis: 5000,
   max: 10,
   idleTimeoutMillis: 30000,
+  ...(isCloudOrSsl ? { ssl: { rejectUnauthorized: false } } : {}),
 });
 
 pool.on("error", (error) => {

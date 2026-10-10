@@ -15,6 +15,7 @@ const envSchema = z.object({
   DB_NAME: z.string().trim().min(1, "DB_NAME is required"),
   DB_USER: z.string().trim().min(1, "DB_USER is required"),
   DB_PASSWORD: z.string().default(""),
+  DB_SSL: z.coerce.boolean().default(false),
 
   JWT_SECRET: z
     .string()
