@@ -10,10 +10,12 @@ const envSchema = z.object({
     .default("development"),
   PORT: z.coerce.number().int().min(1).max(65535).default(5000),
 
+  DATABASE_URL: z.string().trim().optional(),
+
   DB_HOST: z.string().trim().min(1).default("localhost"),
   DB_PORT: z.coerce.number().int().min(1).max(65535).default(5432),
-  DB_NAME: z.string().trim().min(1, "DB_NAME is required"),
-  DB_USER: z.string().trim().min(1, "DB_USER is required"),
+  DB_NAME: z.string().trim().optional(),
+  DB_USER: z.string().trim().optional(),
   DB_PASSWORD: z.string().default(""),
   DB_SSL: z.coerce.boolean().default(false),
 
@@ -25,7 +27,13 @@ const envSchema = z.object({
 
   CORS_ORIGIN: z.string().trim().min(1).default("http://localhost:5173"),
   TRUST_PROXY: z.string().trim().optional(),
-});
+}).refine(
+  (data) => Boolean(data.DATABASE_URL || (data.DB_NAME && data.DB_USER)),
+  {
+    message: "Either DATABASE_URL or both DB_NAME and DB_USER must be provided",
+    path: ["DATABASE_URL"],
+  }
+);
 
 function validateEnv() {
   const result = envSchema.safeParse(process.env);
