@@ -15,5 +15,10 @@ export const accountService = {
     const response = await api.put(`/accounts/${id}`, data);
     return response.data;
   },
+
+  async deleteAccount(id) {
+    const response = await api.delete(`/accounts/${id}`);
+    return response.data;
+  },
 };
 

@@ -11,6 +11,8 @@ import {
   AlertCircle,
   CheckCircle2,
   PiggyBank,
+  Edit2,
+  Trash2,
 } from "lucide-react";
 import { Card, CardHeader, CardTitle, CardDescription, CardContent } from "../components/common/Card";
 import { Button } from "../components/common/Button";
@@ -54,6 +56,23 @@ export function AccountsPage() {
   const [formErrors, setFormErrors] = useState({});
   const [formServerError, setFormServerError] = useState("");
   const [isSubmitting, setIsSubmitting] = useState(false);
+
+  // Edit Account state
+  const [isEditModalOpen, setIsEditModalOpen] = useState(false);
+  const [editingAccount, setEditingAccount] = useState(null);
+  const [editFormData, setEditFormData] = useState({
+    name: "",
+    account_type: "BANK",
+  });
+  const [editFormErrors, setEditFormErrors] = useState({});
+  const [editServerError, setEditServerError] = useState("");
+  const [isEditSubmitting, setIsEditSubmitting] = useState(false);
+
+  // Delete Account state
+  const [isDeleteModalOpen, setIsDeleteModalOpen] = useState(false);
+  const [accountToDelete, setAccountToDelete] = useState(null);
+  const [deleteServerError, setDeleteServerError] = useState("");
+  const [isDeleting, setIsDeleting] = useState(false);
 
   const fetchAccounts = useCallback(async () => {
     setIsLoading(true);
@@ -143,6 +162,70 @@ export function AccountsPage() {
       setFormServerError(err.message || "Failed to create account. Please check your inputs.");
     } finally {
       setIsSubmitting(false);
+    }
+  };
+
+  const handleOpenEditModal = (account) => {
+    setEditingAccount(account);
+    setEditFormData({
+      name: account.name,
+      account_type: account.account_type,
+    });
+    setEditFormErrors({});
+    setEditServerError("");
+    setIsEditModalOpen(true);
+  };
+
+  const handleUpdateAccount = async (e) => {
+    e.preventDefault();
+    if (!editFormData.name.trim()) {
+      setEditFormErrors({ name: "Account name is required" });
+      return;
+    }
+
+    setIsEditSubmitting(true);
+    setEditServerError("");
+    try {
+      const response = await accountService.updateAccount(editingAccount.id, {
+        name: editFormData.name.trim(),
+        account_type: editFormData.account_type,
+      });
+
+      if (response?.success) {
+        setIsEditModalOpen(false);
+        setSuccessMessage(`Account "${editFormData.name.trim()}" updated successfully!`);
+        setTimeout(() => setSuccessMessage(""), 4000);
+        await fetchAccounts();
+      }
+    } catch (err) {
+      setEditServerError(err.message || "Failed to update account.");
+    } finally {
+      setIsEditSubmitting(false);
+    }
+  };
+
+  const handleOpenDeleteModal = (account) => {
+    setAccountToDelete(account);
+    setDeleteServerError("");
+    setIsDeleteModalOpen(true);
+  };
+
+  const handleConfirmDelete = async () => {
+    if (!accountToDelete) return;
+    setIsDeleting(true);
+    setDeleteServerError("");
+    try {
+      const response = await accountService.deleteAccount(accountToDelete.id);
+      if (response?.success) {
+        setIsDeleteModalOpen(false);
+        setSuccessMessage(`Account "${accountToDelete.name}" deleted successfully!`);
+        setTimeout(() => setSuccessMessage(""), 4000);
+        await fetchAccounts();
+      }
+    } catch (err) {
+      setDeleteServerError(err.message || "Cannot delete this account.");
+    } finally {
+      setIsDeleting(false);
     }
   };
 
@@ -330,6 +413,22 @@ export function AccountsPage() {
                         </Badge>
                       </div>
                     </div>
+                    <div className="flex items-center space-x-1">
+                      <button
+                        onClick={() => handleOpenEditModal(account)}
+                        className="p-1.5 text-slate-400 hover:text-emerald-600 hover:bg-emerald-50 rounded-lg transition-colors cursor-pointer"
+                        title="Edit Account"
+                      >
+                        <Edit2 className="w-4 h-4" />
+                      </button>
+                      <button
+                        onClick={() => handleOpenDeleteModal(account)}
+                        className="p-1.5 text-slate-400 hover:text-rose-600 hover:bg-rose-50 rounded-lg transition-colors cursor-pointer"
+                        title="Delete Account"
+                      >
+                        <Trash2 className="w-4 h-4" />
+                      </button>
+                    </div>
                   </div>
                 </CardHeader>
 
@@ -474,6 +573,132 @@ export function AccountsPage() {
             </Button>
           </div>
         </form>
+      </Modal>
+
+      {/* Edit Account Modal */}
+      <Modal
+        isOpen={isEditModalOpen}
+        onClose={() => !isEditSubmitting && setIsEditModalOpen(false)}
+        title="Edit Account"
+        description="Update account details and classification"
+      >
+        <form onSubmit={handleUpdateAccount} className="space-y-4" noValidate>
+          {editServerError && (
+            <div
+              role="alert"
+              className="p-3 rounded-lg bg-rose-50 border border-rose-200 text-rose-800 text-sm flex items-start space-x-2"
+            >
+              <AlertCircle className="w-4 h-4 text-rose-600 flex-shrink-0 mt-0.5" />
+              <span>{editServerError}</span>
+            </div>
+          )}
+
+          <div>
+            <Input
+              label="Account Name"
+              id="edit_name"
+              name="name"
+              type="text"
+              value={editFormData.name}
+              onChange={(e) => {
+                setEditFormData((prev) => ({ ...prev, name: e.target.value }));
+                if (editFormErrors.name) setEditFormErrors((prev) => ({ ...prev, name: "" }));
+              }}
+              error={editFormErrors.name}
+              disabled={isEditSubmitting}
+              autoFocus
+            />
+          </div>
+
+          <div>
+            <label
+              htmlFor="edit_account_type"
+              className="block text-sm font-medium text-slate-700 mb-1.5"
+            >
+              Account Type
+            </label>
+            <select
+              id="edit_account_type"
+              name="account_type"
+              value={editFormData.account_type}
+              onChange={(e) =>
+                setEditFormData((prev) => ({ ...prev, account_type: e.target.value }))
+              }
+              disabled={isEditSubmitting}
+              className="w-full rounded-lg border border-slate-300 px-3.5 py-2 text-sm text-slate-900 bg-white focus:outline-none focus:border-emerald-500 focus:ring-2 focus:ring-emerald-500/20 disabled:bg-slate-100 cursor-pointer"
+            >
+              <option value="BANK">Bank Account</option>
+              <option value="CASH">Cash in Hand</option>
+              <option value="WALLET">Digital Wallet</option>
+              <option value="OTHER">Other / Investment</option>
+            </select>
+          </div>
+
+          <div className="pt-4 flex items-center justify-end space-x-3 border-t border-slate-100">
+            <Button
+              type="button"
+              variant="outline"
+              onClick={() => setIsEditModalOpen(false)}
+              disabled={isEditSubmitting}
+            >
+              Cancel
+            </Button>
+            <Button
+              type="submit"
+              variant="primary"
+              isLoading={isEditSubmitting}
+            >
+              Save Changes
+            </Button>
+          </div>
+        </form>
+      </Modal>
+
+      {/* Delete Confirmation Modal */}
+      <Modal
+        isOpen={isDeleteModalOpen}
+        onClose={() => !isDeleting && setIsDeleteModalOpen(false)}
+        title="Delete Account"
+        description="Are you sure you want to delete this account?"
+      >
+        <div className="space-y-4">
+          {deleteServerError && (
+            <div
+              role="alert"
+              className="p-3 rounded-lg bg-rose-50 border border-rose-200 text-rose-800 text-sm flex items-start space-x-2"
+            >
+              <AlertCircle className="w-4 h-4 text-rose-600 flex-shrink-0 mt-0.5" />
+              <span>{deleteServerError}</span>
+            </div>
+          )}
+
+          <p className="text-sm text-slate-600">
+            You are about to delete{" "}
+            <span className="font-semibold text-slate-900">
+              "{accountToDelete?.name}"
+            </span>
+            . This action cannot be undone. Accounts with existing transactions or loan records cannot be deleted until those records are removed.
+          </p>
+
+          <div className="pt-4 flex items-center justify-end space-x-3 border-t border-slate-100">
+            <Button
+              type="button"
+              variant="outline"
+              onClick={() => setIsDeleteModalOpen(false)}
+              disabled={isDeleting}
+            >
+              Cancel
+            </Button>
+            <Button
+              type="button"
+              variant="danger"
+              onClick={handleConfirmDelete}
+              isLoading={isDeleting}
+            >
+              Delete Account
+            </Button>
+          </div>
+        </div>
       </Modal>
     </div>
   );

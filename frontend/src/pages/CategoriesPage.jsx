@@ -14,6 +14,9 @@ import {
   Sparkles,
   Info,
   Filter,
+  Edit2,
+  Trash2,
+  Lock,
 } from "lucide-react";
 import { Card, CardHeader, CardTitle, CardDescription, CardContent } from "../components/common/Card";
 import { Button } from "../components/common/Button";
@@ -58,6 +61,24 @@ export function CategoriesPage() {
   const [formErrors, setFormErrors] = useState({});
   const [formServerError, setFormServerError] = useState("");
   const [isSubmitting, setIsSubmitting] = useState(false);
+
+  // Edit Category state
+  const [isEditModalOpen, setIsEditModalOpen] = useState(false);
+  const [editingCategory, setEditingCategory] = useState(null);
+  const [editFormData, setEditFormData] = useState({
+    name: "",
+    icon: "",
+    color: "#10b981",
+  });
+  const [editFormErrors, setEditFormErrors] = useState({});
+  const [editServerError, setEditServerError] = useState("");
+  const [isEditSubmitting, setIsEditSubmitting] = useState(false);
+
+  // Delete Category state
+  const [isDeleteModalOpen, setIsDeleteModalOpen] = useState(false);
+  const [categoryToDelete, setCategoryToDelete] = useState(null);
+  const [deleteServerError, setDeleteServerError] = useState("");
+  const [isDeleting, setIsDeleting] = useState(false);
 
   // Fetch categories from backend
   const fetchCategories = useCallback(async (isSilent = false) => {
@@ -206,6 +227,78 @@ export function CategoriesPage() {
       setFormServerError(err.message || "Failed to create category");
     } finally {
       setIsSubmitting(false);
+    }
+  };
+
+  const handleOpenEditModal = (cat) => {
+    setEditingCategory(cat);
+    setEditFormData({
+      name: cat.name,
+      icon: cat.icon || "",
+      color: cat.color || "#10b981",
+    });
+    setEditFormErrors({});
+    setEditServerError("");
+    setIsEditModalOpen(true);
+  };
+
+  const handleUpdateCategory = async (e) => {
+    e.preventDefault();
+    if (!editFormData.name.trim()) {
+      setEditFormErrors({ name: "Category name is required" });
+      return;
+    }
+
+    setIsEditSubmitting(true);
+    setEditServerError("");
+
+    try {
+      const response = await categoryService.updateCategory(editingCategory.id, {
+        name: editFormData.name.trim(),
+        icon: editFormData.icon.trim() || null,
+        color: editFormData.color || null,
+      });
+
+      if (response?.success) {
+        setSuccessMessage(`Category "${editFormData.name.trim()}" updated successfully.`);
+        setTimeout(() => setSuccessMessage(""), 5000);
+        setIsEditModalOpen(false);
+        fetchCategories(true);
+      } else {
+        setEditServerError(response?.message || "Failed to update category");
+      }
+    } catch (err) {
+      setEditServerError(err.message || "Failed to update category");
+    } finally {
+      setIsEditSubmitting(false);
+    }
+  };
+
+  const handleOpenDeleteModal = (cat) => {
+    setCategoryToDelete(cat);
+    setDeleteServerError("");
+    setIsDeleteModalOpen(true);
+  };
+
+  const handleConfirmDeleteCategory = async () => {
+    if (!categoryToDelete) return;
+    setIsDeleting(true);
+    setDeleteServerError("");
+
+    try {
+      const response = await categoryService.deleteCategory(categoryToDelete.id);
+      if (response?.success) {
+        setSuccessMessage(`Category "${categoryToDelete.name}" deleted successfully.`);
+        setTimeout(() => setSuccessMessage(""), 5000);
+        setIsDeleteModalOpen(false);
+        fetchCategories(true);
+      } else {
+        setDeleteServerError(response?.message || "Failed to delete category");
+      }
+    } catch (err) {
+      setDeleteServerError(err.message || "Cannot delete this category.");
+    } finally {
+      setIsDeleting(false);
     }
   };
 
@@ -483,6 +576,7 @@ export function CategoriesPage() {
                     <th className="py-3 px-4 font-semibold">Scope / Ownership</th>
                     <th className="py-3 px-4 font-semibold">Color Tag</th>
                     <th className="py-3 px-4 font-semibold">Created Date</th>
+                    <th className="py-3 px-4 font-semibold text-right">Actions</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-100">
@@ -542,6 +636,31 @@ export function CategoriesPage() {
                         </td>
                         <td className="py-3.5 px-4 whitespace-nowrap text-slate-500 text-xs">
                           {cat.created_at ? formatDate(cat.created_at) : "System standard"}
+                        </td>
+                        <td className="py-3.5 px-4 whitespace-nowrap text-right">
+                          {!isGlobal ? (
+                            <div className="flex items-center justify-end space-x-1">
+                              <button
+                                onClick={() => handleOpenEditModal(cat)}
+                                className="p-1.5 text-slate-400 hover:text-emerald-600 hover:bg-emerald-50 rounded-lg transition-colors cursor-pointer"
+                                title="Edit Category"
+                              >
+                                <Edit2 className="w-4 h-4" />
+                              </button>
+                              <button
+                                onClick={() => handleOpenDeleteModal(cat)}
+                                className="p-1.5 text-slate-400 hover:text-rose-600 hover:bg-rose-50 rounded-lg transition-colors cursor-pointer"
+                                title="Delete Category"
+                              >
+                                <Trash2 className="w-4 h-4" />
+                              </button>
+                            </div>
+                          ) : (
+                            <span className="text-[11px] text-slate-400 inline-flex items-center gap-1">
+                              <Lock className="w-3 h-3 text-slate-300" />
+                              Locked
+                            </span>
+                          )}
                         </td>
                       </tr>
                     );
@@ -666,6 +785,160 @@ export function CategoriesPage() {
             </Button>
           </div>
         </form>
+      </Modal>
+
+      {/* Edit Category Modal */}
+      <Modal
+        isOpen={isEditModalOpen}
+        onClose={() => !isEditSubmitting && setIsEditModalOpen(false)}
+        title="Edit Custom Category"
+        description="Update your category's name, icon, or color"
+      >
+        <form onSubmit={handleUpdateCategory} className="space-y-4" noValidate>
+          {editServerError && (
+            <div
+              role="alert"
+              className="p-3 rounded-lg bg-rose-50 border border-rose-200 text-rose-800 text-xs flex items-center space-x-2"
+            >
+              <AlertCircle className="w-4 h-4 shrink-0" />
+              <span>{editServerError}</span>
+            </div>
+          )}
+
+          <div>
+            <Input
+              label="Category Name"
+              id="edit_cat_name"
+              type="text"
+              value={editFormData.name}
+              onChange={(e) => {
+                setEditFormData((prev) => ({ ...prev, name: e.target.value }));
+                if (editFormErrors.name) setEditFormErrors((prev) => ({ ...prev, name: "" }));
+              }}
+              error={editFormErrors.name}
+              disabled={isEditSubmitting}
+              autoFocus
+            />
+          </div>
+
+          <div>
+            <Input
+              label="Icon (Optional)"
+              id="edit_cat_icon"
+              type="text"
+              placeholder="e.g. coffee, cart, car"
+              value={editFormData.icon}
+              onChange={(e) =>
+                setEditFormData((prev) => ({ ...prev, icon: e.target.value }))
+              }
+              disabled={isEditSubmitting}
+            />
+          </div>
+
+          <div className="space-y-2">
+            <label className="block text-xs font-semibold text-slate-700 uppercase tracking-wider">
+              Category Color
+            </label>
+            <div className="flex items-center space-x-2">
+              <input
+                type="color"
+                value={editFormData.color}
+                onChange={(e) =>
+                  setEditFormData((prev) => ({ ...prev, color: e.target.value }))
+                }
+                disabled={isEditSubmitting}
+                className="w-10 h-10 p-0 border border-slate-300 rounded cursor-pointer"
+              />
+              <span className="text-xs font-mono text-slate-600">{editFormData.color}</span>
+            </div>
+            <div className="flex flex-wrap gap-2 pt-1">
+              {COLOR_PRESETS.map((p) => (
+                <button
+                  key={p.name}
+                  type="button"
+                  onClick={() =>
+                    setEditFormData((prev) => ({ ...prev, color: p.value }))
+                  }
+                  className={`w-6 h-6 rounded-full border border-white shadow-xs cursor-pointer ${
+                    editFormData.color === p.value ? "ring-2 ring-emerald-500 scale-110" : "opacity-80 hover:opacity-100"
+                  }`}
+                  style={{ backgroundColor: p.value }}
+                  title={p.name}
+                />
+              ))}
+            </div>
+          </div>
+
+          <div className="pt-4 border-t border-slate-100 flex items-center justify-end space-x-3">
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              onClick={() => setIsEditModalOpen(false)}
+              disabled={isEditSubmitting}
+            >
+              Cancel
+            </Button>
+            <Button
+              type="submit"
+              variant="primary"
+              size="sm"
+              isLoading={isEditSubmitting}
+              disabled={isEditSubmitting}
+            >
+              Save Changes
+            </Button>
+          </div>
+        </form>
+      </Modal>
+
+      {/* Delete Category Modal */}
+      <Modal
+        isOpen={isDeleteModalOpen}
+        onClose={() => !isDeleting && setIsDeleteModalOpen(false)}
+        title="Delete Custom Category"
+        description="Are you sure you want to delete this category?"
+      >
+        <div className="space-y-4">
+          {deleteServerError && (
+            <div
+              role="alert"
+              className="p-3 rounded-lg bg-rose-50 border border-rose-200 text-rose-800 text-xs flex items-center space-x-2"
+            >
+              <AlertCircle className="w-4 h-4 shrink-0" />
+              <span>{deleteServerError}</span>
+            </div>
+          )}
+
+          <p className="text-sm text-slate-600">
+            You are about to delete{" "}
+            <span className="font-semibold text-slate-900">
+              "{categoryToDelete?.name}"
+            </span>
+            . Categories used in existing transactions cannot be deleted to maintain historical ledger accuracy.
+          </p>
+
+          <div className="pt-4 border-t border-slate-100 flex items-center justify-end space-x-3">
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              onClick={() => setIsDeleteModalOpen(false)}
+              disabled={isDeleting}
+            >
+              Cancel
+            </Button>
+            <Button
+              type="button"
+              variant="danger"
+              size="sm"
+              onClick={handleConfirmDeleteCategory}
+              isLoading={isDeleting}
+            >
+              Delete Category
+            </Button>
+          </div>
+        </div>
       </Modal>
     </div>
   );

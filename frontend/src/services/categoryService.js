@@ -10,5 +10,15 @@ export const categoryService = {
     const response = await api.post("/categories", data);
     return response.data;
   },
+
+  async updateCategory(id, data) {
+    const response = await api.put(`/categories/${id}`, data);
+    return response.data;
+  },
+
+  async deleteCategory(id) {
+    const response = await api.delete(`/categories/${id}`);
+    return response.data;
+  },
 };
 

@@ -199,11 +199,219 @@ async function createRepayment(req, res) {
   }
 }
 
+const updateLendingSchema = z.object({
+  account_id: z.coerce.number().int().positive().optional(),
+  person_name: z.string().trim().min(1).max(100).optional(),
+  phone: z.string().trim().max(20).nullable().optional(),
+  principal_amount: z.coerce.number().finite().positive().max(999999999999.99).optional(),
+  due_date: z.iso.date().nullable().optional(),
+  notes: z.string().max(5000).nullable().optional(),
+});
+
+async function updateLendingRecord(req, res) {
+  const id = Number(req.params.id);
+
+  if (!Number.isSafeInteger(id) || id <= 0) {
+    return res.status(400).json({
+      success: false,
+      message: "Invalid lending record ID",
+    });
+  }
+
+  const validation = updateLendingSchema.safeParse(req.body);
+
+  if (!validation.success) {
+    return res.status(400).json({
+      success: false,
+      message: "Invalid update details",
+      errors: validation.error.issues,
+    });
+  }
+
+  try {
+    const updated = await lendingService.updateLendingRecord(
+      req.user.id,
+      id,
+      validation.data
+    );
+
+    if (!updated) {
+      return res.status(404).json({
+        success: false,
+        message: "Lending record not found",
+      });
+    }
+
+    return res.status(200).json({
+      success: true,
+      message: "Lending record updated successfully",
+      data: updated,
+    });
+  } catch (error) {
+    if (
+      error.statusCode === 400 ||
+      error.code === "INVALID_ACCOUNT" ||
+      error.code === "PRINCIPAL_BELOW_REPAID"
+    ) {
+      return res.status(400).json({
+        success: false,
+        message: error.message,
+      });
+    }
+
+    console.error("Update lending record failed:", error.message);
+    return res.status(500).json({
+      success: false,
+      message: "Unable to update lending record",
+    });
+  }
+}
+
+const topUpLendingSchema = z.object({
+  amount: z.coerce.number().finite().positive().max(999999999999.99),
+  notes: z.string().max(1000).nullable().optional(),
+});
+
+async function topUpLendingRecord(req, res) {
+  const id = Number(req.params.id);
+
+  if (!Number.isSafeInteger(id) || id <= 0) {
+    return res.status(400).json({
+      success: false,
+      message: "Invalid lending record ID",
+    });
+  }
+
+  const validation = topUpLendingSchema.safeParse(req.body);
+
+  if (!validation.success) {
+    return res.status(400).json({
+      success: false,
+      message: "Invalid top-up details",
+      errors: validation.error.issues,
+    });
+  }
+
+  try {
+    const updated = await lendingService.topUpLendingRecord(
+      req.user.id,
+      id,
+      validation.data
+    );
+
+    if (!updated) {
+      return res.status(404).json({
+        success: false,
+        message: "Lending record not found",
+      });
+    }
+
+    return res.status(200).json({
+      success: true,
+      message: "Principal topped up successfully",
+      data: updated,
+    });
+  } catch (error) {
+    if (error.statusCode === 400) {
+      return res.status(400).json({
+        success: false,
+        message: error.message,
+      });
+    }
+
+    console.error("Top-up lending record failed:", error.message);
+    return res.status(500).json({
+      success: false,
+      message: "Unable to top-up principal",
+    });
+  }
+}
+
+async function deleteLendingRecord(req, res) {
+  const id = Number(req.params.id);
+
+  if (!Number.isSafeInteger(id) || id <= 0) {
+    return res.status(400).json({
+      success: false,
+      message: "Invalid lending record ID",
+    });
+  }
+
+  try {
+    const deleted = await lendingService.deleteLendingRecord(req.user.id, id);
+
+    if (!deleted) {
+      return res.status(404).json({
+        success: false,
+        message: "Lending record not found",
+      });
+    }
+
+    return res.status(200).json({
+      success: true,
+      message: "Lending record deleted successfully",
+    });
+  } catch (error) {
+    console.error("Delete lending record failed:", error.message);
+    return res.status(500).json({
+      success: false,
+      message: "Unable to delete lending record",
+    });
+  }
+}
+
+async function deleteRepayment(req, res) {
+  const id = Number(req.params.id);
+  const repaymentId = Number(req.params.repaymentId);
+
+  if (
+    !Number.isSafeInteger(id) ||
+    id <= 0 ||
+    !Number.isSafeInteger(repaymentId) ||
+    repaymentId <= 0
+  ) {
+    return res.status(400).json({
+      success: false,
+      message: "Invalid record or repayment ID",
+    });
+  }
+
+  try {
+    const deleted = await lendingService.deleteRepayment(
+      req.user.id,
+      id,
+      repaymentId
+    );
+
+    if (!deleted) {
+      return res.status(404).json({
+        success: false,
+        message: "Repayment not found",
+      });
+    }
+
+    return res.status(200).json({
+      success: true,
+      message: "Repayment deleted successfully",
+    });
+  } catch (error) {
+    console.error("Delete repayment failed:", error.message);
+    return res.status(500).json({
+      success: false,
+      message: "Unable to delete repayment",
+    });
+  }
+}
+
 module.exports = {
   getLendingRecords,
   getLendingSummary,
   getLendingRecordById,
   createLendingRecord,
+  updateLendingRecord,
+  topUpLendingRecord,
+  deleteLendingRecord,
   createRepayment,
+  deleteRepayment,
 };
 

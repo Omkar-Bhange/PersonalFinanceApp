@@ -111,9 +111,50 @@ async function updateAccount(req, res) {
   }
 }
 
+async function deleteAccount(req, res) {
+  const id = Number(req.params.id);
+
+  if (!Number.isSafeInteger(id) || id <= 0) {
+    return res.status(400).json({
+      success: false,
+      message: "Invalid account ID",
+    });
+  }
+
+  try {
+    const deleted = await accountService.deleteAccount(req.user.id, id);
+
+    if (!deleted) {
+      return res.status(404).json({
+        success: false,
+        message: "Account not found",
+      });
+    }
+
+    return res.status(200).json({
+      success: true,
+      message: "Account deleted successfully",
+    });
+  } catch (error) {
+    if (error.statusCode === 400) {
+      return res.status(400).json({
+        success: false,
+        message: error.message,
+      });
+    }
+
+    console.error("Delete account failed:", error.message);
+    return res.status(500).json({
+      success: false,
+      message: "Unable to delete account",
+    });
+  }
+}
+
 module.exports = {
   getAccounts,
   createAccount,
   updateAccount,
+  deleteAccount,
 };
 

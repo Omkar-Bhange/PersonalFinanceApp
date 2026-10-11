@@ -289,11 +289,129 @@ async function getLendingSummary(userId) {
   };
 }
 
+async function updateLendingRecord(userId, lendingId, data) {
+  const existing = await getLendingRecordById(userId, lendingId);
+  if (!existing) {
+    return null;
+  }
+
+  if (data.account_id && data.account_id !== existing.account_id) {
+    const accCheck = await pool.query(
+      `SELECT id FROM accounts WHERE id = $1 AND user_id = $2 AND is_active = TRUE`,
+      [data.account_id, userId]
+    );
+    if (accCheck.rowCount === 0) {
+      const err = new Error("Account does not exist, is inactive, or is not accessible");
+      err.statusCode = 400;
+      err.code = "INVALID_ACCOUNT";
+      throw err;
+    }
+  }
+
+  if (data.principal_amount !== undefined) {
+    const totalRepaid = parseFloat(existing.total_repaid) || 0;
+    const newPrincipal = parseFloat(data.principal_amount);
+    if (newPrincipal < totalRepaid) {
+      const err = new Error(
+        `Principal amount (${newPrincipal.toFixed(2)}) cannot be less than already repaid amount (${totalRepaid.toFixed(2)})`
+      );
+      err.statusCode = 400;
+      err.code = "PRINCIPAL_BELOW_REPAID";
+      throw err;
+    }
+  }
+
+  await pool.query(
+    `UPDATE lending_records
+     SET account_id = COALESCE($1, account_id),
+         person_name = COALESCE($2, person_name),
+         phone = $3,
+         principal_amount = COALESCE($4, principal_amount),
+         due_date = $5,
+         notes = $6,
+         updated_at = NOW()
+     WHERE id = $7 AND user_id = $8`,
+    [
+      data.account_id || null,
+      data.person_name || null,
+      data.phone !== undefined ? data.phone : existing.phone,
+      data.principal_amount || null,
+      data.due_date !== undefined ? data.due_date : existing.due_date,
+      data.notes !== undefined ? data.notes : existing.notes,
+      lendingId,
+      userId,
+    ]
+  );
+
+  return getLendingRecordById(userId, lendingId);
+}
+
+async function topUpLendingRecord(userId, lendingId, data) {
+  const existing = await getLendingRecordById(userId, lendingId);
+  if (!existing) {
+    return null;
+  }
+
+  const topUpAmount = parseFloat(data.amount);
+  if (isNaN(topUpAmount) || topUpAmount <= 0) {
+    const err = new Error("Top-up amount must be a positive number");
+    err.statusCode = 400;
+    throw err;
+  }
+
+  const dateStr = new Date().toISOString().slice(0, 10);
+  const topUpNote = data.notes?.trim() ? ` (${data.notes.trim()})` : "";
+  const auditLine = `[${dateStr}] Added +${topUpAmount.toFixed(2)}${topUpNote}`;
+  const updatedNotes = existing.notes
+    ? `${existing.notes}\n${auditLine}`
+    : auditLine;
+
+  await pool.query(
+    `UPDATE lending_records
+     SET principal_amount = principal_amount + $1,
+         notes = $2,
+         updated_at = NOW()
+     WHERE id = $3 AND user_id = $4`,
+    [topUpAmount, updatedNotes, lendingId, userId]
+  );
+
+  return getLendingRecordById(userId, lendingId);
+}
+
+async function deleteLendingRecord(userId, lendingId) {
+  const result = await pool.query(
+    `DELETE FROM lending_records WHERE id = $1 AND user_id = $2`,
+    [lendingId, userId]
+  );
+  return result.rowCount > 0;
+}
+
+async function deleteRepayment(userId, lendingId, repaymentId) {
+  const result = await pool.query(
+    `DELETE FROM repayments WHERE id = $1 AND lending_id = $2 AND user_id = $3`,
+    [repaymentId, lendingId, userId]
+  );
+
+  if (result.rowCount > 0) {
+    await pool.query(
+      `UPDATE lending_records SET updated_at = NOW() WHERE id = $1 AND user_id = $2`,
+      [lendingId, userId]
+    );
+    return true;
+  }
+
+  return false;
+}
+
 module.exports = {
   getLendingRecords,
   getLendingRecordById,
   createLendingRecord,
+  updateLendingRecord,
+  topUpLendingRecord,
+  deleteLendingRecord,
   createRepayment,
+  deleteRepayment,
   getLendingSummary,
 };
 

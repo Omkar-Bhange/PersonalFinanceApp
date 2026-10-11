@@ -150,10 +150,58 @@ async function updateAccount(userId, accountId, data) {
   return getAccountById(userId, accountId);
 }
 
+async function deleteAccount(userId, accountId) {
+  const accountRes = await pool.query(
+    `SELECT id, name FROM accounts WHERE id = $1 AND user_id = $2`,
+    [accountId, userId]
+  );
+  if (accountRes.rowCount === 0) {
+    return null;
+  }
+
+  const txCheck = await pool.query(
+    `SELECT id FROM transactions WHERE account_id = $1 AND user_id = $2 LIMIT 1`,
+    [accountId, userId]
+  );
+  if (txCheck.rowCount > 0) {
+    const error = new Error("Cannot delete account because it has recorded transactions. Please delete or reassign them first.");
+    error.statusCode = 400;
+    throw error;
+  }
+
+  const lendCheck = await pool.query(
+    `SELECT id FROM lending_records WHERE account_id = $1 AND user_id = $2 LIMIT 1`,
+    [accountId, userId]
+  );
+  if (lendCheck.rowCount > 0) {
+    const error = new Error("Cannot delete account because it is linked to active lending or borrowing records.");
+    error.statusCode = 400;
+    throw error;
+  }
+
+  const repCheck = await pool.query(
+    `SELECT id FROM repayments WHERE account_id = $1 AND user_id = $2 LIMIT 1`,
+    [accountId, userId]
+  );
+  if (repCheck.rowCount > 0) {
+    const error = new Error("Cannot delete account because it has recorded loan repayments.");
+    error.statusCode = 400;
+    throw error;
+  }
+
+  await pool.query(
+    `DELETE FROM accounts WHERE id = $1 AND user_id = $2`,
+    [accountId, userId]
+  );
+
+  return true;
+}
+
 module.exports = {
   getAccounts,
   getAccountById,
   createAccount,
   updateAccount,
+  deleteAccount,
 };
 

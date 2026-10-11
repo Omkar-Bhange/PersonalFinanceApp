@@ -32,5 +32,25 @@ export const lendingService = {
     const response = await api.post(`/lending/${lendingId}/repayments`, data);
     return response.data;
   },
+
+  async updateLendingRecord(id, data) {
+    const response = await api.put(`/lending/${id}`, data);
+    return response.data;
+  },
+
+  async topUpLendingRecord(id, data) {
+    const response = await api.post(`/lending/${id}/topup`, data);
+    return response.data;
+  },
+
+  async deleteLendingRecord(id) {
+    const response = await api.delete(`/lending/${id}`);
+    return response.data;
+  },
+
+  async deleteRepayment(lendingId, repaymentId) {
+    const response = await api.delete(`/lending/${lendingId}/repayments/${repaymentId}`);
+    return response.data;
+  },
 };
 

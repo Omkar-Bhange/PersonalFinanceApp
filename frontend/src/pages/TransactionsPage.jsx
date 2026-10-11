@@ -13,6 +13,8 @@ import {
   ArrowUpRight,
   ArrowDownRight,
   Search,
+  Edit2,
+  Trash2,
 } from "lucide-react";
 import { Card, CardHeader, CardTitle, CardDescription, CardContent } from "../components/common/Card";
 import { Button } from "../components/common/Button";
@@ -56,6 +58,29 @@ export function TransactionsPage() {
   const [formErrors, setFormErrors] = useState({});
   const [formServerError, setFormServerError] = useState("");
   const [isSubmitting, setIsSubmitting] = useState(false);
+
+  // Transaction Edit Modal state
+  const [isEditModalOpen, setIsEditModalOpen] = useState(false);
+  const [editingTx, setEditingTx] = useState(null);
+  const [editFormData, setEditFormData] = useState({
+    account_id: "",
+    category_id: "",
+    transaction_type: "EXPENSE",
+    amount: "",
+    transaction_date: "",
+    description: "",
+    merchant: "",
+    notes: "",
+  });
+  const [editFormErrors, setEditFormErrors] = useState({});
+  const [editServerError, setEditServerError] = useState("");
+  const [isEditSubmitting, setIsEditSubmitting] = useState(false);
+
+  // Transaction Delete state
+  const [isDeleteModalOpen, setIsDeleteModalOpen] = useState(false);
+  const [txToDelete, setTxToDelete] = useState(null);
+  const [deleteServerError, setDeleteServerError] = useState("");
+  const [isDeleting, setIsDeleting] = useState(false);
 
   // Load dropdown resources (accounts & categories)
   const fetchResources = useCallback(async () => {
@@ -199,6 +224,94 @@ export function TransactionsPage() {
     }
   };
 
+  const handleOpenEditModal = (tx) => {
+    setEditingTx(tx);
+    setEditFormData({
+      account_id: String(tx.account_id),
+      category_id: tx.category_id ? String(tx.category_id) : "",
+      transaction_type: tx.transaction_type,
+      amount: String(tx.amount),
+      transaction_date: tx.transaction_date ? tx.transaction_date.slice(0, 10) : "",
+      description: tx.description || "",
+      merchant: tx.merchant || "",
+      notes: tx.notes || "",
+    });
+    setEditFormErrors({});
+    setEditServerError("");
+    setIsEditModalOpen(true);
+  };
+
+  const handleUpdateTransaction = async (e) => {
+    e.preventDefault();
+    const errors = {};
+    if (!editFormData.account_id) errors.account_id = "Account is required";
+    const numAmount = parseFloat(editFormData.amount);
+    if (!editFormData.amount || isNaN(numAmount) || numAmount <= 0) {
+      errors.amount = "Please enter a valid positive amount";
+    }
+    if (!editFormData.transaction_date) errors.transaction_date = "Date is required";
+
+    if (Object.keys(errors).length > 0) {
+      setEditFormErrors(errors);
+      return;
+    }
+
+    setIsEditSubmitting(true);
+    setEditServerError("");
+
+    try {
+      const payload = {
+        account_id: Number(editFormData.account_id),
+        category_id: editFormData.category_id ? Number(editFormData.category_id) : null,
+        transaction_type: editFormData.transaction_type,
+        amount: parseFloat(editFormData.amount),
+        transaction_date: editFormData.transaction_date,
+        description: editFormData.description.trim() || null,
+        merchant: editFormData.merchant.trim() || null,
+        notes: editFormData.notes.trim() || null,
+      };
+
+      const response = await transactionService.updateTransaction(editingTx.id, payload);
+
+      if (response?.success) {
+        setIsEditModalOpen(false);
+        setSuccessMessage("Transaction updated successfully!");
+        setTimeout(() => setSuccessMessage(""), 4000);
+        await Promise.all([fetchTransactions(), fetchResources()]);
+      }
+    } catch (err) {
+      setEditServerError(err.message || "Failed to update transaction.");
+    } finally {
+      setIsEditSubmitting(false);
+    }
+  };
+
+  const handleOpenDeleteModal = (tx) => {
+    setTxToDelete(tx);
+    setDeleteServerError("");
+    setIsDeleteModalOpen(true);
+  };
+
+  const handleConfirmDelete = async () => {
+    if (!txToDelete) return;
+    setIsDeleting(true);
+    setDeleteServerError("");
+
+    try {
+      const response = await transactionService.deleteTransaction(txToDelete.id);
+      if (response?.success) {
+        setIsDeleteModalOpen(false);
+        setSuccessMessage("Transaction deleted successfully!");
+        setTimeout(() => setSuccessMessage(""), 4000);
+        await Promise.all([fetchTransactions(), fetchResources()]);
+      }
+    } catch (err) {
+      setDeleteServerError(err.message || "Failed to delete transaction.");
+    } finally {
+      setIsDeleting(false);
+    }
+  };
+
   const handleResetFilters = () => {
     setFilterType("");
     setFilterFrom("");
@@ -208,6 +321,9 @@ export function TransactionsPage() {
   // Filter categories by selected transaction type
   const availableCategories = categories.filter(
     (c) => c.category_type === formData.transaction_type
+  );
+  const availableEditCategories = categories.filter(
+    (c) => c.category_type === editFormData.transaction_type
   );
 
   // Helper lookups for table rendering
@@ -388,6 +504,7 @@ export function TransactionsPage() {
                   <th className="py-3.5 px-4">Account</th>
                   <th className="py-3.5 px-4 text-center">Type</th>
                   <th className="py-3.5 px-5 text-right">Amount</th>
+                  <th className="py-3.5 px-4 text-right">Actions</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100 text-sm">
@@ -441,6 +558,24 @@ export function TransactionsPage() {
                           {isIncome ? "+" : "-"} {formatCurrency(tx.amount, userCurrency)}
                         </span>
                       </td>
+                      <td className="py-3.5 px-4 text-right whitespace-nowrap">
+                        <div className="flex items-center justify-end space-x-1">
+                          <button
+                            onClick={() => handleOpenEditModal(tx)}
+                            className="p-1.5 text-slate-400 hover:text-emerald-600 hover:bg-emerald-50 rounded-lg transition-colors cursor-pointer"
+                            title="Edit Transaction"
+                          >
+                            <Edit2 className="w-4 h-4" />
+                          </button>
+                          <button
+                            onClick={() => handleOpenDeleteModal(tx)}
+                            className="p-1.5 text-slate-400 hover:text-rose-600 hover:bg-rose-50 rounded-lg transition-colors cursor-pointer"
+                            title="Delete Transaction"
+                          >
+                            <Trash2 className="w-4 h-4" />
+                          </button>
+                        </div>
+                      </td>
                     </tr>
                   );
                 })}
@@ -476,18 +611,36 @@ export function TransactionsPage() {
                     </span>
                   </div>
 
-                  <div className="flex items-center justify-between text-xs pt-1">
+                  <div className="flex items-center justify-between text-xs pt-2 border-t border-slate-100">
                     <span className="text-slate-600 flex items-center space-x-1">
                       <Building2 className="w-3.5 h-3.5 text-slate-400" />
                       <span>{account ? account.name : `Account #${tx.account_id}`}</span>
                     </span>
-                    {category ? (
-                      <Badge variant={isIncome ? "success" : "neutral"} className="text-[10px]">
-                        {category.name}
-                      </Badge>
-                    ) : (
-                      <span className="text-slate-400 italic text-[11px]">Uncategorized</span>
-                    )}
+                    <div className="flex items-center space-x-2">
+                      {category ? (
+                        <Badge variant={isIncome ? "success" : "neutral"} className="text-[10px]">
+                          {category.name}
+                        </Badge>
+                      ) : (
+                        <span className="text-slate-400 italic text-[11px]">Uncategorized</span>
+                      )}
+                      <div className="flex items-center space-x-1 pl-2 border-l border-slate-200">
+                        <button
+                          onClick={() => handleOpenEditModal(tx)}
+                          className="p-1 text-slate-400 hover:text-emerald-600 rounded"
+                          title="Edit Transaction"
+                        >
+                          <Edit2 className="w-3.5 h-3.5" />
+                        </button>
+                        <button
+                          onClick={() => handleOpenDeleteModal(tx)}
+                          className="p-1 text-slate-400 hover:text-rose-600 rounded"
+                          title="Delete Transaction"
+                        >
+                          <Trash2 className="w-3.5 h-3.5" />
+                        </button>
+                      </div>
+                    </div>
                   </div>
                 </div>
               );
@@ -698,6 +851,250 @@ export function TransactionsPage() {
             </Button>
           </div>
         </form>
+      </Modal>
+
+      {/* Edit Transaction Modal */}
+      <Modal
+        isOpen={isEditModalOpen}
+        onClose={() => !isEditSubmitting && setIsEditModalOpen(false)}
+        title="Edit Transaction"
+        description="Update transaction details, amounts, or classifications"
+      >
+        <form onSubmit={handleUpdateTransaction} className="space-y-4" noValidate>
+          {editServerError && (
+            <div
+              role="alert"
+              className="p-3 rounded-lg bg-rose-50 border border-rose-200 text-rose-800 text-sm flex items-start space-x-2 animate-fadeIn"
+            >
+              <AlertCircle className="w-4 h-4 text-rose-600 flex-shrink-0 mt-0.5" />
+              <span>{editServerError}</span>
+            </div>
+          )}
+
+          {/* Transaction Type Radio Selector */}
+          <div>
+            <label className="block text-sm font-medium text-slate-700 mb-2">
+              Transaction Type
+            </label>
+            <div className="grid grid-cols-2 gap-3">
+              <label
+                className={`flex items-center justify-center p-3 rounded-xl border text-sm font-semibold cursor-pointer transition-all ${
+                  editFormData.transaction_type === "EXPENSE"
+                    ? "border-rose-500 bg-rose-50/50 text-rose-700 shadow-xs"
+                    : "border-slate-200 hover:border-slate-300 text-slate-600"
+                }`}
+              >
+                <input
+                  type="radio"
+                  name="edit_transaction_type"
+                  value="EXPENSE"
+                  checked={editFormData.transaction_type === "EXPENSE"}
+                  onChange={() =>
+                    setEditFormData((prev) => ({
+                      ...prev,
+                      transaction_type: "EXPENSE",
+                      category_id: "",
+                    }))
+                  }
+                  className="sr-only"
+                />
+                <ArrowDownRight className="w-4 h-4 mr-1.5 text-rose-500" />
+                <span>Expense Debit</span>
+              </label>
+
+              <label
+                className={`flex items-center justify-center p-3 rounded-xl border text-sm font-semibold cursor-pointer transition-all ${
+                  editFormData.transaction_type === "INCOME"
+                    ? "border-emerald-500 bg-emerald-50/50 text-emerald-700 shadow-xs"
+                    : "border-slate-200 hover:border-slate-300 text-slate-600"
+                }`}
+              >
+                <input
+                  type="radio"
+                  name="edit_transaction_type"
+                  value="INCOME"
+                  checked={editFormData.transaction_type === "INCOME"}
+                  onChange={() =>
+                    setEditFormData((prev) => ({
+                      ...prev,
+                      transaction_type: "INCOME",
+                      category_id: "",
+                    }))
+                  }
+                  className="sr-only"
+                />
+                <ArrowUpRight className="w-4 h-4 mr-1.5 text-emerald-500" />
+                <span>Income Credit</span>
+              </label>
+            </div>
+          </div>
+
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+            <div>
+              <Input
+                label={`Amount (${userCurrency})`}
+                id="edit_amount"
+                type="number"
+                step="0.01"
+                value={editFormData.amount}
+                onChange={(e) =>
+                  setEditFormData((prev) => ({ ...prev, amount: e.target.value }))
+                }
+                error={editFormErrors.amount}
+                disabled={isEditSubmitting}
+                autoFocus
+              />
+            </div>
+
+            <div>
+              <Input
+                label="Transaction Date"
+                id="edit_transaction_date"
+                type="date"
+                value={editFormData.transaction_date}
+                onChange={(e) =>
+                  setEditFormData((prev) => ({ ...prev, transaction_date: e.target.value }))
+                }
+                error={editFormErrors.transaction_date}
+                disabled={isEditSubmitting}
+              />
+            </div>
+          </div>
+
+          <div>
+            <label className="block text-sm font-medium text-slate-700 mb-1.5">
+              Account
+            </label>
+            <select
+              value={editFormData.account_id}
+              onChange={(e) =>
+                setEditFormData((prev) => ({ ...prev, account_id: e.target.value }))
+              }
+              disabled={isEditSubmitting}
+              className="w-full rounded-lg border border-slate-300 px-3.5 py-2 text-sm text-slate-900 bg-white focus:outline-none focus:border-emerald-500 focus:ring-2 focus:ring-emerald-500/20 disabled:bg-slate-100 cursor-pointer"
+            >
+              {accounts.map((acc) => (
+                <option key={acc.id} value={acc.id}>
+                  {acc.name} ({formatCurrency(acc.current_balance, userCurrency)})
+                </option>
+              ))}
+            </select>
+          </div>
+
+          <div>
+            <label className="block text-sm font-medium text-slate-700 mb-1.5">
+              Category
+            </label>
+            <select
+              value={editFormData.category_id}
+              onChange={(e) =>
+                setEditFormData((prev) => ({ ...prev, category_id: e.target.value }))
+              }
+              disabled={isEditSubmitting}
+              className="w-full rounded-lg border border-slate-300 px-3.5 py-2 text-sm text-slate-900 bg-white focus:outline-none focus:border-emerald-500 focus:ring-2 focus:ring-emerald-500/20 disabled:bg-slate-100 cursor-pointer"
+            >
+              <option value="">Uncategorized</option>
+              {availableEditCategories.map((cat) => (
+                <option key={cat.id} value={cat.id}>
+                  {cat.name} {cat.user_id ? "(Custom)" : "(Standard)"}
+                </option>
+              ))}
+            </select>
+          </div>
+
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+            <div>
+              <Input
+                label="Description"
+                id="edit_description"
+                type="text"
+                value={editFormData.description}
+                onChange={(e) =>
+                  setEditFormData((prev) => ({ ...prev, description: e.target.value }))
+                }
+                disabled={isEditSubmitting}
+              />
+            </div>
+
+            <div>
+              <Input
+                label="Merchant / Payee"
+                id="edit_merchant"
+                type="text"
+                value={editFormData.merchant}
+                onChange={(e) =>
+                  setEditFormData((prev) => ({ ...prev, merchant: e.target.value }))
+                }
+                disabled={isEditSubmitting}
+              />
+            </div>
+          </div>
+
+          <div className="pt-4 flex items-center justify-end space-x-3 border-t border-slate-100">
+            <Button
+              type="button"
+              variant="outline"
+              onClick={() => setIsEditModalOpen(false)}
+              disabled={isEditSubmitting}
+            >
+              Cancel
+            </Button>
+            <Button
+              type="submit"
+              variant="primary"
+              isLoading={isEditSubmitting}
+            >
+              Save Changes
+            </Button>
+          </div>
+        </form>
+      </Modal>
+
+      {/* Delete Transaction Modal */}
+      <Modal
+        isOpen={isDeleteModalOpen}
+        onClose={() => !isDeleting && setIsDeleteModalOpen(false)}
+        title="Delete Transaction"
+        description="Are you sure you want to delete this transaction?"
+      >
+        <div className="space-y-4">
+          {deleteServerError && (
+            <div
+              role="alert"
+              className="p-3 rounded-lg bg-rose-50 border border-rose-200 text-rose-800 text-sm flex items-start space-x-2"
+            >
+              <AlertCircle className="w-4 h-4 text-rose-600 flex-shrink-0 mt-0.5" />
+              <span>{deleteServerError}</span>
+            </div>
+          )}
+
+          <p className="text-sm text-slate-600">
+            Are you sure you want to delete this transaction of{" "}
+            <span className="font-semibold text-slate-900">
+              {txToDelete ? formatCurrency(txToDelete.amount, userCurrency) : ""}
+            </span>
+            {txToDelete?.description ? ` (${txToDelete.description})` : ""}? The account balance will be automatically recalculated.
+          </p>
+
+          <div className="pt-4 flex items-center justify-end space-x-3 border-t border-slate-100">
+            <Button
+              type="button"
+              variant="outline"
+              onClick={() => setIsDeleteModalOpen(false)}
+              disabled={isDeleting}
+            >
+              Cancel
+            </Button>
+            <Button
+              type="button"
+              variant="danger"
+              onClick={handleConfirmDelete}
+              isLoading={isDeleting}
+            >
+              Delete Transaction
+            </Button>
+          </div>
+        </div>
       </Modal>
     </div>
   );
