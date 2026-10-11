@@ -29,6 +29,16 @@ export const transactionService = {
     return response.data;
   },
 
+  async updateTransaction(id, data) {
+    const response = await api.put(`/transactions/${id}`, data);
+    return response.data;
+  },
+
+  async deleteTransaction(id) {
+    const response = await api.delete(`/transactions/${id}`);
+    return response.data;
+  },
+
   async getMonthlySummary(month) {
     const url = month ? `/transactions/summary?month=${month}` : "/transactions/summary";
     const response = await api.get(url);
