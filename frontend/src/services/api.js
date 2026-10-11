@@ -9,7 +9,7 @@ const api = axios.create({
   headers: {
     "Content-Type": "application/json",
   },
-  timeout: 10000,
+  timeout: 60000,
 });
 
 // Request interceptor: Attach JWT token if stored
@@ -35,10 +35,14 @@ api.interceptors.response.use(
       localStorage.removeItem("pfa_auth_user");
     }
 
-    const message =
+    let message =
       error.response?.data?.message ||
       error.message ||
       "An unexpected network error occurred";
+
+    if (error.code === "ECONNABORTED" || message.toLowerCase().includes("timeout")) {
+      message = "The server is taking longer than usual to respond (Render free tier waking up). Please try again in a moment.";
+    }
 
     const customError = new Error(message);
     customError.status = error.response?.status;
