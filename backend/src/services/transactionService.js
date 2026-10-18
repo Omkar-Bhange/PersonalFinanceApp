@@ -78,7 +78,7 @@ async function createTransaction(userId, data) {
   return result.rows[0];
 }
 
-async function createBulkTransactions(userId, { account_id, account_name, transactions }) {
+async function createBulkTransactions(userId, { account_id, account_name, transactions, sync_closing_balance }) {
   if (!transactions || !transactions.length) {
     return [];
   }
@@ -201,6 +201,49 @@ async function createBulkTransactions(userId, { account_id, account_name, transa
       );
 
       inserted.push(res.rows[0]);
+    }
+
+    // If sync_closing_balance is provided, adjust account opening_balance so current_balance equals statement closing balance
+    if (sync_closing_balance !== undefined && sync_closing_balance !== null && !isNaN(Number(sync_closing_balance))) {
+      const targetClosingBalance = Number(sync_closing_balance);
+
+      const balQuery = await client.query(
+        `SELECT
+           COALESCE(t.net_transactions, 0) AS net_transactions,
+           COALESCE(l.net_lending_principal, 0) AS net_lending,
+           COALESCE(r.net_repayments, 0) AS net_repayments
+         FROM (
+           SELECT SUM(CASE WHEN transaction_type = 'INCOME' THEN amount ELSE -amount END) AS net_transactions
+           FROM transactions
+           WHERE account_id = $1 AND user_id = $2
+         ) t
+         CROSS JOIN (
+           SELECT SUM(CASE WHEN direction = 'BORROWED' THEN principal_amount ELSE -principal_amount END) AS net_lending_principal
+           FROM lending_records
+           WHERE account_id = $1 AND user_id = $2
+         ) l
+         CROSS JOIN (
+           SELECT SUM(CASE WHEN lr.direction = 'LENT' THEN r.amount ELSE -r.amount END) AS net_repayments
+           FROM repayments r
+           JOIN lending_records lr ON r.lending_id = lr.id
+           WHERE r.account_id = $1 AND r.user_id = $2
+         ) r`,
+        [targetAccountId, userId]
+      );
+
+      const netDelta =
+        parseFloat(balQuery.rows[0]?.net_transactions || 0) +
+        parseFloat(balQuery.rows[0]?.net_lending || 0) +
+        parseFloat(balQuery.rows[0]?.net_repayments || 0);
+
+      const neededOpeningBalance = targetClosingBalance - netDelta;
+
+      await client.query(
+        `UPDATE accounts
+         SET opening_balance = $1, updated_at = NOW()
+         WHERE id = $2 AND user_id = $3`,
+        [neededOpeningBalance, targetAccountId, userId]
+      );
     }
 
     await client.query("COMMIT");

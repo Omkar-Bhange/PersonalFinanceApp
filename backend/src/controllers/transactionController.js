@@ -106,6 +106,7 @@ async function createTransaction(req, res) {
 const bulkSchema = z.object({
   account_id: z.coerce.number().int().positive().nullable().optional(),
   account_name: z.string().trim().max(100).nullable().optional(),
+  sync_closing_balance: z.coerce.number().finite().nullable().optional(),
   transactions: z
     .array(
       z.object({

@@ -16,14 +16,16 @@ const upload = multer({
       "text/csv",
       "text/plain",
       "application/vnd.ms-excel",
+      "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+      "application/octet-stream",
       "image/png",
       "image/jpeg",
       "image/webp",
     ];
-    if (allowedMimes.includes(file.mimetype) || file.originalname.match(/\.(pdf|csv|txt|png|jpe?g|webp)$/i)) {
+    if (allowedMimes.includes(file.mimetype) || file.originalname.match(/\.(pdf|csv|txt|png|jpe?g|webp|xlsx|xls)$/i)) {
       cb(null, true);
     } else {
-      cb(new Error("Unsupported file format. Please upload PDF, CSV, TXT, or Image."));
+      cb(new Error("Unsupported file format. Please upload PDF, Excel (.xlsx, .xls), CSV, TXT, or Image."));
     }
   },
 });

@@ -103,6 +103,8 @@ export function TransactionsPage() {
   const [extractError, setExtractError] = useState("");
   const [extractedTransactions, setExtractedTransactions] = useState([]);
   const [detectedAccountInfo, setDetectedAccountInfo] = useState(null);
+  const [statementClosingBalance, setStatementClosingBalance] = useState(null);
+  const [syncClosingBalance, setSyncClosingBalance] = useState(true);
   const [isBulkImporting, setIsBulkImporting] = useState(false);
   const [importServerError, setImportServerError] = useState("");
 
@@ -348,6 +350,8 @@ export function TransactionsPage() {
     setExtractError("");
     setExtractedTransactions([]);
     setDetectedAccountInfo(null);
+    setStatementClosingBalance(null);
+    setSyncClosingBalance(true);
     setImportServerError("");
   };
 
@@ -361,7 +365,7 @@ export function TransactionsPage() {
 
   const handleStartAIExtraction = async () => {
     if (importInputMode === "file" && !importFile) {
-      setExtractError("Please select a bank statement file (PDF, CSV, image) to upload.");
+      setExtractError("Please select a bank statement file (Excel, PDF, CSV, image) to upload.");
       return;
     }
     if (importInputMode === "text" && !importText.trim()) {
@@ -377,6 +381,14 @@ export function TransactionsPage() {
       const res = await aiService.parseStatement(payload);
 
       if (res?.success && Array.isArray(res.data) && res.data.length > 0) {
+        if (res.statement_closing_balance !== null && res.statement_closing_balance !== undefined) {
+          setStatementClosingBalance(Number(res.statement_closing_balance));
+          setSyncClosingBalance(true);
+        } else {
+          setStatementClosingBalance(null);
+          setSyncClosingBalance(false);
+        }
+
         if (res?.detected_account) {
           setDetectedAccountInfo(res.detected_account);
           if (res.detected_account.matched_account_id) {
@@ -406,7 +418,7 @@ export function TransactionsPage() {
         setExtractError("No valid financial transactions could be detected in the provided content. Please check the file or text and try again.");
       }
     } catch (err) {
-      setExtractError(err.message || "Failed to analyze statement with AI. Please check your Gemini API key or file format.");
+      setExtractError(err.message || "Failed to analyze statement. Please check file format or API key.");
     } finally {
       setIsExtracting(false);
     }
@@ -501,6 +513,9 @@ export function TransactionsPage() {
 
       const payload = {
         ...(finalAccountId ? { account_id: finalAccountId } : { account_name: finalAccountName }),
+        ...(syncClosingBalance && statementClosingBalance !== null && !isNaN(Number(statementClosingBalance))
+          ? { sync_closing_balance: Number(statementClosingBalance) }
+          : {}),
         transactions: selected.map((t) => ({
           category_id: t.category_id ? Number(t.category_id) : null,
           category_name: t.category_name ? t.category_name.trim() : null,
@@ -1416,7 +1431,7 @@ export function TransactionsPage() {
                     <input
                       id="statement-file-upload"
                       type="file"
-                      accept=".pdf,.csv,.txt,.png,.jpg,.jpeg,.webp"
+                      accept=".xlsx,.xls,.pdf,.csv,.txt,.png,.jpg,.jpeg,.webp"
                       onChange={handleFileChange}
                       className="hidden"
                       disabled={isExtracting}
@@ -1434,12 +1449,15 @@ export function TransactionsPage() {
                         </span>
                       </div>
                     ) : (
-                      <div className="space-y-1">
+                      <div className="space-y-2">
                         <span className="font-semibold text-sm text-slate-900 block">
                           Click to upload or drag & drop bank statement
                         </span>
-                        <span className="text-xs text-slate-500 block">
-                          PDF, CSV, Excel, or UPI Payment Screenshots (PNG, JPG)
+                        <span className="text-xs text-slate-600 font-medium block">
+                          Excel (.xlsx, .xls), PDF, CSV, or UPI Payment Screenshots
+                        </span>
+                        <span className="inline-block text-[11px] font-semibold text-emerald-800 bg-emerald-100/80 px-2.5 py-0.5 rounded-full">
+                          ✨ Excel files (.xlsx, .xls) provide 100% cell-accurate numbers & balances
                         </span>
                       </div>
                     )}
@@ -1515,6 +1533,73 @@ export function TransactionsPage() {
               >
                 <AlertCircle className="w-4 h-4 text-rose-600 flex-shrink-0 mt-0.5" />
                 <span>{importServerError}</span>
+              </div>
+            )}
+
+            {/* Statement Balance Synchronization Card */}
+            {statementClosingBalance !== null && (
+              <div className="p-3.5 rounded-xl bg-gradient-to-r from-emerald-50 via-teal-50/50 to-slate-50 border border-emerald-200/90 flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-xs shadow-sm">
+                <div className="flex items-center space-x-3">
+                  <div className="w-8 h-8 rounded-xl bg-emerald-600 text-white flex items-center justify-center font-bold text-sm shadow-sm flex-shrink-0">
+                    ₹
+                  </div>
+                  <div>
+                    <div className="text-slate-800 font-medium flex items-center space-x-1.5 flex-wrap">
+                      <span>Detected Statement Closing Balance:</span>
+                      <strong className="text-emerald-700 font-bold text-sm">
+                        {formatCurrency(statementClosingBalance, userCurrency)}
+                      </strong>
+                    </div>
+                    <div className="text-[11px] text-slate-500">
+                      Calculated net from {extractedTransactions.filter((t) => t.selected).length} selected transactions:{" "}
+                      <span
+                        className={
+                          extractedTransactions
+                            .filter((t) => t.selected)
+                            .reduce(
+                              (acc, t) =>
+                                t.transaction_type === "INCOME"
+                                  ? acc + (parseFloat(t.amount) || 0)
+                                  : acc - (parseFloat(t.amount) || 0),
+                              0
+                            ) >= 0
+                            ? "text-emerald-700 font-bold"
+                            : "text-rose-700 font-bold"
+                        }
+                      >
+                        {formatCurrency(
+                          extractedTransactions
+                            .filter((t) => t.selected)
+                            .reduce(
+                              (acc, t) =>
+                                t.transaction_type === "INCOME"
+                                  ? acc + (parseFloat(t.amount) || 0)
+                                  : acc - (parseFloat(t.amount) || 0),
+                              0
+                            ),
+                          userCurrency
+                        )}
+                      </span>
+                    </div>
+                  </div>
+                </div>
+
+                <label className="flex items-center space-x-2.5 cursor-pointer bg-white px-3 py-2 rounded-lg border border-emerald-300 shadow-sm hover:border-emerald-500 hover:bg-emerald-50/30 transition-colors flex-shrink-0">
+                  <input
+                    type="checkbox"
+                    checked={syncClosingBalance}
+                    onChange={(e) => setSyncClosingBalance(e.target.checked)}
+                    className="rounded border-slate-300 text-emerald-600 focus:ring-emerald-500 cursor-pointer w-4 h-4"
+                  />
+                  <div className="text-left">
+                    <span className="text-xs font-bold text-emerald-950 block">
+                      Sync Account Balance
+                    </span>
+                    <span className="text-[10px] text-slate-500 block">
+                      Guarantees account equals statement balance
+                    </span>
+                  </div>
+                </label>
               </div>
             )}
 

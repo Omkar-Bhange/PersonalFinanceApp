@@ -100,6 +100,8 @@ Output MUST be a single JSON object conforming strictly to this format:
     "suggested_account_name": "SBI Account (...1234)",
     "matched_account_id": number or null
   },
+  "statement_closing_balance": 14401.50 or null,
+  "statement_opening_balance": 14750.50 or null,
   "detected_new_categories": [
     {
       "name": "Category Name",
@@ -205,6 +207,8 @@ ${JSON.stringify(categoriesList, null, 2)}
   return {
     detected_account: result.detected_account || null,
     detected_new_categories: Array.isArray(result.detected_new_categories) ? result.detected_new_categories : [],
+    statement_closing_balance: result.statement_closing_balance ? Number(result.statement_closing_balance) : null,
+    statement_opening_balance: result.statement_opening_balance ? Number(result.statement_opening_balance) : null,
     transactions: normalizedTransactions,
   };
 }
