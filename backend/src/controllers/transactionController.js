@@ -324,6 +324,49 @@ async function getTransactionSummary(req, res) {
   }
 }
 
+const bulkDeleteSchema = z
+  .object({
+    transaction_ids: z.array(z.coerce.number().int().positive()).optional(),
+    account_id: z.coerce.number().int().positive().optional(),
+    clear_all: z.boolean().optional(),
+  })
+  .refine(
+    (data) => Boolean((data.transaction_ids && data.transaction_ids.length > 0) || data.clear_all),
+    {
+      message: "Please specify transaction_ids to delete or set clear_all to true",
+    }
+  );
+
+async function bulkDeleteTransactions(req, res) {
+  const validation = bulkDeleteSchema.safeParse(req.body);
+
+  if (!validation.success) {
+    return res.status(400).json({
+      success: false,
+      message: validation.error.issues[0]?.message || "Invalid bulk delete request",
+    });
+  }
+
+  try {
+    const count = await transactionService.bulkDeleteTransactions(
+      req.user.id,
+      validation.data
+    );
+
+    return res.status(200).json({
+      success: true,
+      message: `Successfully deleted ${count} transaction(s)`,
+      count,
+    });
+  } catch (error) {
+    console.error("Bulk delete transactions failed:", error.message);
+    return res.status(500).json({
+      success: false,
+      message: "Unable to delete transactions",
+    });
+  }
+}
+
 module.exports = {
   getTransactions,
   getTransactionSummary,
@@ -331,5 +374,6 @@ module.exports = {
   createBulkTransactions,
   updateTransaction,
   deleteTransaction,
+  bulkDeleteTransactions,
 };
 

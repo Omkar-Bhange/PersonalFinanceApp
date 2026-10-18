@@ -44,6 +44,11 @@ export const transactionService = {
     return response.data;
   },
 
+  async bulkDeleteTransactions(data) {
+    const response = await api.post("/transactions/bulk-delete", data);
+    return response.data;
+  },
+
   async getMonthlySummary(month) {
     const url = month ? `/transactions/summary?month=${month}` : "/transactions/summary";
     const response = await api.get(url);

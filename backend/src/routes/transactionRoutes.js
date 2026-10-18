@@ -9,6 +9,7 @@ const {
   createBulkTransactions,
   updateTransaction,
   deleteTransaction,
+  bulkDeleteTransactions,
 } = require("../controllers/transactionController");
 
 const router = express.Router();
@@ -19,6 +20,7 @@ router.get("/summary", getTransactionSummary);
 router.get("/", getTransactions);
 router.post("/", createTransaction);
 router.post("/bulk", createBulkTransactions);
+router.post("/bulk-delete", bulkDeleteTransactions);
 router.put("/:id", updateTransaction);
 router.delete("/:id", deleteTransaction);
 

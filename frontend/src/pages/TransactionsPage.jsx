@@ -92,6 +92,12 @@ export function TransactionsPage() {
   const [deleteServerError, setDeleteServerError] = useState("");
   const [isDeleting, setIsDeleting] = useState(false);
 
+  // Bulk Delete State
+  const [selectedTxIds, setSelectedTxIds] = useState(new Set());
+  const [isBulkDeleteModalOpen, setIsBulkDeleteModalOpen] = useState(false);
+  const [isBulkDeleting, setIsBulkDeleting] = useState(false);
+  const [bulkDeleteServerError, setBulkDeleteServerError] = useState("");
+
   // AI Statement Import Modal State
   const [isImportModalOpen, setIsImportModalOpen] = useState(false);
   const [importStep, setImportStep] = useState(1); // 1: Upload/Paste, 2: Review & Approve
@@ -335,6 +341,51 @@ export function TransactionsPage() {
       setDeleteServerError(err.message || "Failed to delete transaction.");
     } finally {
       setIsDeleting(false);
+    }
+  };
+
+  // Bulk Delete Handlers
+  const handleToggleSelectAllTxs = (checked) => {
+    const shouldSelect = typeof checked === "boolean"
+      ? checked
+      : selectedTxIds.size < transactions.length;
+    if (shouldSelect) {
+      setSelectedTxIds(new Set(transactions.map((t) => t.id)));
+    } else {
+      setSelectedTxIds(new Set());
+    }
+  };
+
+  const handleToggleSelectTx = (id) => {
+    setSelectedTxIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) {
+        next.delete(id);
+      } else {
+        next.add(id);
+      }
+      return next;
+    });
+  };
+
+  const handleConfirmBulkDelete = async () => {
+    if (selectedTxIds.size === 0) return;
+    setIsBulkDeleting(true);
+    setBulkDeleteServerError("");
+    try {
+      const ids = Array.from(selectedTxIds);
+      const res = await transactionService.bulkDeleteTransactions({ transaction_ids: ids });
+      if (res?.success) {
+        setIsBulkDeleteModalOpen(false);
+        setSelectedTxIds(new Set());
+        setSuccessMessage(`Successfully deleted ${res.count} transaction(s)!`);
+        setTimeout(() => setSuccessMessage(""), 4000);
+        await Promise.all([fetchTransactions(), fetchResources()]);
+      }
+    } catch (err) {
+      setBulkDeleteServerError(err.message || "Failed to delete selected transactions.");
+    } finally {
+      setIsBulkDeleting(false);
     }
   };
 
@@ -737,33 +788,100 @@ export function TransactionsPage() {
           </div>
         </Card>
       ) : (
-        /* Transactions Table Card */
-        <Card className="overflow-hidden border-slate-200/80 shadow-xs">
-          {/* Desktop Table View */}
-          <div className="hidden md:block overflow-x-auto">
-            <table className="w-full text-left border-collapse">
-              <thead>
-                <tr className="bg-slate-50/80 border-b border-slate-200 text-[11px] font-bold text-slate-500 uppercase tracking-wider">
-                  <th className="py-3.5 px-5">Date</th>
-                  <th className="py-3.5 px-4">Description / Merchant</th>
-                  <th className="py-3.5 px-4">Category</th>
-                  <th className="py-3.5 px-4">Account</th>
-                  <th className="py-3.5 px-4 text-center">Type</th>
-                  <th className="py-3.5 px-5 text-right">Amount</th>
-                  <th className="py-3.5 px-4 text-right">Actions</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-slate-100 text-sm">
-                {transactions.map((tx) => {
-                  const isIncome = tx.transaction_type === "INCOME";
-                  const account = accountMap.get(String(tx.account_id));
-                  const category = categoryMap.get(String(tx.category_id));
+        <div className="space-y-3">
+          {/* Bulk Delete Toolbar */}
+          {selectedTxIds.size > 0 && (
+            <div className="p-3.5 rounded-2xl bg-slate-900 text-white flex flex-col sm:flex-row sm:items-center justify-between gap-3 shadow-lg border border-slate-800 animate-fadeIn">
+              <div className="flex items-center space-x-3 flex-wrap gap-y-1">
+                <span className="font-semibold text-xs text-emerald-400">
+                  {selectedTxIds.size} of {transactions.length} transaction(s) selected
+                </span>
+                <span className="text-slate-600 hidden sm:inline">•</span>
+                <button
+                  type="button"
+                  onClick={() => setSelectedTxIds(new Set())}
+                  className="text-xs text-slate-300 hover:text-white underline cursor-pointer"
+                >
+                  Deselect All
+                </button>
+                <span className="text-slate-600 hidden sm:inline">•</span>
+                <button
+                  type="button"
+                  onClick={() => setSelectedTxIds(new Set(transactions.map((t) => t.id)))}
+                  className="text-xs text-slate-300 hover:text-white underline cursor-pointer"
+                >
+                  Select All ({transactions.length})
+                </button>
+              </div>
 
-                  return (
-                    <tr key={tx.id} className="hover:bg-slate-50/60 transition-colors">
-                      <td className="py-3.5 px-5 font-medium text-slate-700 whitespace-nowrap">
-                        {formatDate(tx.transaction_date)}
-                      </td>
+              <div className="flex items-center space-x-2">
+                <Button
+                  variant="danger"
+                  size="sm"
+                  onClick={() => {
+                    setBulkDeleteServerError("");
+                    setIsBulkDeleteModalOpen(true);
+                  }}
+                  className="flex items-center space-x-1.5 py-1 px-3 text-xs bg-rose-600 hover:bg-rose-700"
+                >
+                  <Trash2 className="w-3.5 h-3.5" />
+                  <span>Delete Selected ({selectedTxIds.size})</span>
+                </Button>
+              </div>
+            </div>
+          )}
+
+          {/* Transactions Table Card */}
+          <Card className="overflow-hidden border-slate-200/80 shadow-xs">
+            {/* Desktop Table View */}
+            <div className="hidden md:block overflow-x-auto">
+              <table className="w-full text-left border-collapse">
+                <thead>
+                  <tr className="bg-slate-50/80 border-b border-slate-200 text-[11px] font-bold text-slate-500 uppercase tracking-wider">
+                    <th className="py-3.5 px-4 text-center w-10">
+                      <input
+                        type="checkbox"
+                        checked={selectedTxIds.size === transactions.length && transactions.length > 0}
+                        onChange={(e) => handleToggleSelectAllTxs(e.target.checked)}
+                        className="rounded border-slate-300 text-emerald-600 focus:ring-emerald-500 cursor-pointer w-4 h-4"
+                        title="Select all transactions"
+                      />
+                    </th>
+                    <th className="py-3.5 px-4">Date</th>
+                    <th className="py-3.5 px-4">Description / Merchant</th>
+                    <th className="py-3.5 px-4">Category</th>
+                    <th className="py-3.5 px-4">Account</th>
+                    <th className="py-3.5 px-4 text-center">Type</th>
+                    <th className="py-3.5 px-5 text-right">Amount</th>
+                    <th className="py-3.5 px-4 text-right">Actions</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-100 text-sm">
+                  {transactions.map((tx) => {
+                    const isIncome = tx.transaction_type === "INCOME";
+                    const account = accountMap.get(String(tx.account_id));
+                    const category = categoryMap.get(String(tx.category_id));
+
+                    return (
+                      <tr
+                        key={tx.id}
+                        className={`transition-colors ${
+                          selectedTxIds.has(tx.id)
+                            ? "bg-emerald-50/40 hover:bg-emerald-50/60"
+                            : "hover:bg-slate-50/60"
+                        }`}
+                      >
+                        <td className="py-3.5 px-4 text-center">
+                          <input
+                            type="checkbox"
+                            checked={selectedTxIds.has(tx.id)}
+                            onChange={() => handleToggleSelectTx(tx.id)}
+                            className="rounded border-slate-300 text-emerald-600 focus:ring-emerald-500 cursor-pointer w-4 h-4"
+                          />
+                        </td>
+                        <td className="py-3.5 px-4 font-medium text-slate-700 whitespace-nowrap">
+                          {formatDate(tx.transaction_date)}
+                        </td>
                       <td className="py-3.5 px-4">
                         <span className="font-semibold text-slate-900 block truncate max-w-xs">
                           {tx.description || (isIncome ? "Income Credit" : "Expense Debit")}
@@ -837,16 +955,29 @@ export function TransactionsPage() {
               const category = categoryMap.get(String(tx.category_id));
 
               return (
-                <div key={tx.id} className="p-4 space-y-2.5">
+                <div
+                  key={tx.id}
+                  className={`p-4 space-y-2.5 transition-colors ${
+                    selectedTxIds.has(tx.id) ? "bg-emerald-50/40" : ""
+                  }`}
+                >
                   <div className="flex items-start justify-between">
-                    <div>
-                      <span className="font-semibold text-slate-900 block">
-                        {tx.description || (isIncome ? "Income Credit" : "Expense Debit")}
-                      </span>
-                      <span className="text-xs text-slate-400">
-                        {formatDate(tx.transaction_date)}
-                        {tx.merchant ? ` • ${tx.merchant}` : ""}
-                      </span>
+                    <div className="flex items-start space-x-3">
+                      <input
+                        type="checkbox"
+                        checked={selectedTxIds.has(tx.id)}
+                        onChange={() => handleToggleSelectTx(tx.id)}
+                        className="rounded border-slate-300 text-emerald-600 focus:ring-emerald-500 cursor-pointer w-4 h-4 mt-0.5 flex-shrink-0"
+                      />
+                      <div>
+                        <span className="font-semibold text-slate-900 block">
+                          {tx.description || (isIncome ? "Income Credit" : "Expense Debit")}
+                        </span>
+                        <span className="text-xs text-slate-400">
+                          {formatDate(tx.transaction_date)}
+                          {tx.merchant ? ` • ${tx.merchant}` : ""}
+                        </span>
+                      </div>
                     </div>
                     <span
                       className={`text-base font-bold whitespace-nowrap ${
@@ -893,7 +1024,8 @@ export function TransactionsPage() {
             })}
           </div>
         </Card>
-      )}
+      </div>
+    )}
 
       {/* Transaction Creation Modal */}
       <Modal
@@ -1338,6 +1470,56 @@ export function TransactionsPage() {
               isLoading={isDeleting}
             >
               Delete Transaction
+            </Button>
+          </div>
+        </div>
+      </Modal>
+
+      {/* Bulk Delete Confirmation Modal */}
+      <Modal
+        isOpen={isBulkDeleteModalOpen}
+        onClose={() => !isBulkDeleting && setIsBulkDeleteModalOpen(false)}
+        title="Delete Selected Transactions"
+        description={`Are you sure you want to delete ${selectedTxIds.size} selected transaction(s)?`}
+        maxWidth="max-w-md"
+      >
+        <div className="space-y-4">
+          {bulkDeleteServerError && (
+            <div
+              role="alert"
+              className="p-3 rounded-lg bg-rose-50 border border-rose-200 text-rose-800 text-xs flex items-center space-x-2"
+            >
+              <AlertCircle className="w-4 h-4 text-rose-600 flex-shrink-0" />
+              <span>{bulkDeleteServerError}</span>
+            </div>
+          )}
+
+          <div className="p-3.5 rounded-xl bg-amber-50 border border-amber-200 text-amber-900 text-xs space-y-1.5">
+            <p className="font-semibold text-amber-950 flex items-center space-x-1.5">
+              <span>⚠️ Permanent Action</span>
+            </p>
+            <p className="text-slate-600">
+              This will permanently delete <strong>{selectedTxIds.size}</strong> transaction(s) and automatically update your account balances.
+            </p>
+          </div>
+
+          <div className="pt-3 flex items-center justify-end space-x-3 border-t border-slate-100">
+            <Button
+              type="button"
+              variant="outline"
+              onClick={() => setIsBulkDeleteModalOpen(false)}
+              disabled={isBulkDeleting}
+            >
+              Cancel
+            </Button>
+            <Button
+              type="button"
+              variant="danger"
+              onClick={handleConfirmBulkDelete}
+              isLoading={isBulkDeleting}
+              className="bg-rose-600 hover:bg-rose-700"
+            >
+              Confirm Delete ({selectedTxIds.size})
             </Button>
           </div>
         </div>

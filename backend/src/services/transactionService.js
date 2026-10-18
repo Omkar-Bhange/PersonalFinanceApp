@@ -331,6 +331,40 @@ async function deleteTransaction(userId, transactionId) {
   return result.rowCount > 0;
 }
 
+async function bulkDeleteTransactions(userId, { transaction_ids, account_id, clear_all }) {
+  if (clear_all && account_id) {
+    const res = await pool.query(
+      `DELETE FROM transactions
+       WHERE user_id = $1 AND account_id = $2
+       RETURNING id`,
+      [userId, account_id]
+    );
+    return res.rowCount;
+  }
+
+  if (clear_all && !account_id) {
+    const res = await pool.query(
+      `DELETE FROM transactions
+       WHERE user_id = $1
+       RETURNING id`,
+      [userId]
+    );
+    return res.rowCount;
+  }
+
+  if (Array.isArray(transaction_ids) && transaction_ids.length > 0) {
+    const res = await pool.query(
+      `DELETE FROM transactions
+       WHERE user_id = $1 AND id = ANY($2::bigint[])
+       RETURNING id`,
+      [userId, transaction_ids]
+    );
+    return res.rowCount;
+  }
+
+  return 0;
+}
+
 function getMonthDateRange(monthStr) {
   const [yearStr, monthNumStr] = monthStr.split("-");
   const year = parseInt(yearStr, 10);
@@ -513,6 +547,7 @@ module.exports = {
   createBulkTransactions,
   updateTransaction,
   deleteTransaction,
+  bulkDeleteTransactions,
   getMonthlySummary,
 };
 
