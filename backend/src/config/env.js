@@ -28,6 +28,8 @@ const envSchema = z.object({
   CORS_ORIGIN: z.string().trim().min(1).default("http://localhost:5173"),
   TRUST_PROXY: z.string().trim().optional(),
   GEMINI_API_KEY: z.string().trim().optional(),
+  TELEGRAM_BOT_TOKEN: z.string().trim().optional(),
+  TELEGRAM_WEBHOOK_URL: z.string().trim().optional(),
 }).refine(
   (data) => Boolean(data.DATABASE_URL || (data.DB_NAME && data.DB_USER)),
   {

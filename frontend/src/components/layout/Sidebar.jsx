@@ -12,9 +12,12 @@ import {
   LogOut,
   LogIn,
   User,
+  Send,
+  Bot,
 } from "lucide-react";
 import { cn } from "../../utils/cn";
 import { useAuth } from "../../hooks/useAuth";
+import { TelegramConnectModal } from "../telegram/TelegramConnectModal";
 
 const navigationItems = [
   { name: "Overview", href: "/", icon: LayoutDashboard },
@@ -27,6 +30,7 @@ const navigationItems = [
 export function Sidebar({ isOpen, onClose }) {
   const { user, isAuthenticated, logout } = useAuth();
   const navigate = useNavigate();
+  const [isTelegramModalOpen, setIsTelegramModalOpen] = useState(false);
 
   const handleLogout = () => {
     logout();
@@ -104,6 +108,36 @@ export function Sidebar({ isOpen, onClose }) {
             );
           })}
         </nav>
+
+        {/* Telegram Bot quick access */}
+        {isAuthenticated && (
+          <div className="px-4 py-2">
+            <button
+              type="button"
+              onClick={() => {
+                setIsTelegramModalOpen(true);
+                onClose?.();
+              }}
+              className="w-full flex items-center justify-between px-3.5 py-2.5 rounded-xl bg-slate-800/80 hover:bg-slate-800 border border-slate-700/80 text-slate-200 hover:text-white transition-all text-xs font-medium group cursor-pointer"
+            >
+              <div className="flex items-center space-x-2.5">
+                <div className="w-6 h-6 rounded-lg bg-sky-500/20 text-sky-400 flex items-center justify-center group-hover:scale-105 transition-transform">
+                  <Send className="w-3.5 h-3.5" />
+                </div>
+                <span>Telegram Bot</span>
+              </div>
+              <span className="text-[10px] font-semibold text-sky-400 bg-sky-950/60 border border-sky-800 px-1.5 py-0.5 rounded">
+                Auto-Log
+              </span>
+            </button>
+          </div>
+        )}
+
+        {/* Telegram Connect Modal */}
+        <TelegramConnectModal
+          isOpen={isTelegramModalOpen}
+          onClose={() => setIsTelegramModalOpen(false)}
+        />
 
         {/* User profile / session footer */}
         <div className="p-4 border-t border-slate-800 bg-slate-950/50 space-y-3">

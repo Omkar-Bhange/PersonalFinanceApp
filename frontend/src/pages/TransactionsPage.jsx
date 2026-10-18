@@ -24,12 +24,14 @@ import {
   Square,
   Layers,
   Bot,
+  Send,
 } from "lucide-react";
 import { Card, CardHeader, CardTitle, CardDescription, CardContent } from "../components/common/Card";
 import { Button } from "../components/common/Button";
 import { Badge } from "../components/common/Badge";
 import { Input } from "../components/common/Input";
 import { Modal } from "../components/common/Modal";
+import { TelegramConnectModal } from "../components/telegram/TelegramConnectModal";
 import { transactionService } from "../services/transactionService";
 import { accountService } from "../services/accountService";
 import { categoryService } from "../services/categoryService";
@@ -116,6 +118,7 @@ export function TransactionsPage() {
   const [statementReconciliation, setStatementReconciliation] = useState(null);
   const [isBulkImporting, setIsBulkImporting] = useState(false);
   const [importServerError, setImportServerError] = useState("");
+  const [isTelegramModalOpen, setIsTelegramModalOpen] = useState(false);
 
   // Load dropdown resources (accounts & categories)
   const fetchResources = useCallback(async () => {
@@ -671,6 +674,17 @@ export function TransactionsPage() {
           >
             <Sparkles className="w-4 h-4 text-emerald-600" />
             <span>Import with AI</span>
+          </Button>
+
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => setIsTelegramModalOpen(true)}
+            className="flex items-center space-x-1.5 border-sky-300 text-sky-800 bg-sky-50/70 hover:bg-sky-100 hover:text-sky-900 transition-colors shadow-xs"
+            title="Connect Telegram Bot for instant SMS and expense logging"
+          >
+            <Send className="w-4 h-4 text-sky-600" />
+            <span className="hidden sm:inline">Telegram Bot</span>
           </Button>
 
           <Button
@@ -2170,6 +2184,12 @@ export function TransactionsPage() {
           </div>
         )}
       </Modal>
+
+      {/* Telegram Connect Modal */}
+      <TelegramConnectModal
+        isOpen={isTelegramModalOpen}
+        onClose={() => setIsTelegramModalOpen(false)}
+      />
     </div>
   );
 }
