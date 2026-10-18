@@ -1,6 +1,12 @@
 const pool = require("../config/database");
 const env = require("../config/env");
 const { categorizeTransaction, cleanMerchantName } = require("./categorizationEngine");
+const { getMonthlyBudgets, checkBudgetAlert } = require("./budgetService");
+
+function renderProgressBar(percentage, length = 10) {
+  const filled = Math.min(length, Math.max(0, Math.round((percentage / 100) * length)));
+  return "█".repeat(filled) + "░".repeat(length - filled);
+}
 
 let cachedBotInfo = null;
 
@@ -435,8 +441,55 @@ async function processTelegramUpdate(update) {
       `📊 *Commands:*\n` +
       `• /balance - View balances of all your accounts\n` +
       `• /recent - View your 5 most recent transactions\n` +
+      `• /budget - View your monthly budget progress & limits\n` +
       `• /unlink - Disconnect this Telegram chat`
     );
+    return;
+  }
+
+  if (rawText === "/budget") {
+    const budgetData = await getMonthlyBudgets(userId);
+    const { summary, category_budgets, calendar } = budgetData;
+
+    if (!summary.total_limit && category_budgets.length === 0) {
+      await sendTelegramMessage(
+        chatId,
+        `📊 *Budget Tracker:*\n\n` +
+        `You haven't set any budgets for this month yet.\n` +
+        `💡 Go to the *Budgets* tab in your web app to set limits or click *Auto-Generate* to build them from your past 3 months of spending!`
+      );
+      return;
+    }
+
+    const spentStr = new Intl.NumberFormat("en-IN", { style: "currency", currency: userCurrency }).format(summary.total_spent);
+    const limitStr = new Intl.NumberFormat("en-IN", { style: "currency", currency: userCurrency }).format(summary.total_limit);
+    const remainingStr = new Intl.NumberFormat("en-IN", { style: "currency", currency: userCurrency }).format(Math.max(0, summary.total_remaining));
+    const projStr = new Intl.NumberFormat("en-IN", { style: "currency", currency: userCurrency }).format(summary.projected_spend);
+
+    const overallBar = renderProgressBar(summary.percentage, 10);
+    const statusEmoji = summary.percentage >= 100 ? "🚨 OVER BUDGET" : summary.percentage >= 80 ? "⚠️ WARNING" : "🟢 ON TRACK";
+
+    let text = `📊 *Budget Overview for ${budgetData.month}*\n\n`;
+    text += `🎯 *Overall Budget:* ${statusEmoji}\n`;
+    text += `\`[${overallBar}]\` *${summary.percentage}%*\n`;
+    text += `• Spent: *${spentStr}* of ${limitStr}\n`;
+    text += `• Remaining: *${remainingStr}*\n`;
+    text += `• Projected Month-End: *${projStr}*\n`;
+    text += `• Days Remaining: *${calendar.days_remaining} days*\n\n`;
+
+    if (category_budgets.length > 0) {
+      text += `📁 *Category Limits:*\n`;
+      for (const cat of category_budgets.slice(0, 8)) {
+        const catBar = renderProgressBar(cat.percentage, 8);
+        const catSpent = new Intl.NumberFormat("en-IN", { style: "currency", currency: userCurrency }).format(cat.spent);
+        const catLimit = new Intl.NumberFormat("en-IN", { style: "currency", currency: userCurrency }).format(cat.amount_limit);
+        const catEmoji = cat.percentage >= 100 ? "🔴" : cat.percentage >= 80 ? "🟡" : "🟢";
+        text += `\n${catEmoji} *${cat.category_name}* (${cat.percentage}%)\n`;
+        text += `   \`[${catBar}]\` ${catSpent} / ${catLimit}`;
+      }
+    }
+
+    await sendTelegramMessage(chatId, text);
     return;
   }
 
@@ -650,6 +703,25 @@ async function processTelegramUpdate(update) {
     const isExpense = parsed.transaction_type === "EXPENSE";
     const amtFormatted = new Intl.NumberFormat("en-IN", { style: "currency", currency: userCurrency }).format(parsed.amount);
 
+    let budgetNotice = "";
+    if (isExpense) {
+      try {
+        const alerts = await checkBudgetAlert(userId, categoryId, parsed.amount);
+        if (alerts && alerts.length > 0) {
+          const lines = alerts.map((a) => {
+            if (a.type === "EXCEEDED" || a.type === "OVERALL_EXCEEDED") {
+              return `🚨 *Budget Exceeded!* You've reached *${a.percentage}%* of your *${a.category || "Overall"}* limit.`;
+            } else {
+              return `⚠️ *Budget Notice:* You've reached *${a.percentage}%* of your *${a.category || "Overall"}* limit.`;
+            }
+          });
+          budgetNotice = "\n\n" + lines.join("\n");
+        }
+      } catch (alertErr) {
+        // Non-blocking
+      }
+    }
+
     await sendTelegramMessage(
       chatId,
       `✅ *Transaction Logged Successfully!*\n\n` +
@@ -657,7 +729,8 @@ async function processTelegramUpdate(update) {
       `🏪 *Payee:* ${parsed.merchant}\n` +
       `🏷️ *Category:* ${categoryName}\n` +
       `🏦 *Account:* ${accountName}\n` +
-      `📅 *Date:* ${parsed.transaction_date}`
+      `📅 *Date:* ${parsed.transaction_date}` +
+      budgetNotice
     );
   }
 }

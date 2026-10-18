@@ -14,6 +14,7 @@ import {
   User,
   Send,
   Bot,
+  Target,
 } from "lucide-react";
 import { cn } from "../../utils/cn";
 import { useAuth } from "../../hooks/useAuth";
@@ -23,6 +24,7 @@ const navigationItems = [
   { name: "Overview", href: "/", icon: LayoutDashboard },
   { name: "Accounts", href: "/accounts", icon: Wallet },
   { name: "Transactions", href: "/transactions", icon: ArrowLeftRight },
+  { name: "Budgets & AI", href: "/budgets", icon: Target },
   { name: "Lending & Borrowing", href: "/lending", icon: HandCoins },
   { name: "Categories", href: "/categories", icon: Tags },
 ];

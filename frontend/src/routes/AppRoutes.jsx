@@ -10,6 +10,7 @@ import { AccountsPage } from "../pages/AccountsPage";
 import { TransactionsPage } from "../pages/TransactionsPage";
 import { LendingPage } from "../pages/LendingPage";
 import { CategoriesPage } from "../pages/CategoriesPage";
+import { BudgetsPage } from "../pages/BudgetsPage";
 import { NotFoundPage } from "../pages/NotFoundPage";
 
 export function AppRoutes() {
@@ -27,6 +28,7 @@ export function AppRoutes() {
           <Route path="/" element={<HomePage />} />
           <Route path="/accounts" element={<AccountsPage />} />
           <Route path="/transactions" element={<TransactionsPage />} />
+          <Route path="/budgets" element={<BudgetsPage />} />
           <Route path="/lending" element={<LendingPage />} />
           <Route path="/categories" element={<CategoriesPage />} />
         </Route>

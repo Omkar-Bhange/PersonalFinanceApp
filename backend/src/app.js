@@ -12,6 +12,7 @@ const transactionRoutes = require("./routes/transactionRoutes");
 const lendingRoutes = require("./routes/lendingRoutes");
 const aiRoutes = require("./routes/aiRoutes");
 const telegramRoutes = require("./routes/telegramRoutes");
+const budgetRoutes = require("./routes/budgetRoutes");
 
 const app = express();
 
@@ -51,6 +52,7 @@ app.use("/api/v1/transactions", transactionRoutes);
 app.use("/api/v1/lending", lendingRoutes);
 app.use("/api/v1/ai", aiRoutes);
 app.use("/api/v1/telegram", telegramRoutes);
+app.use("/api/v1/budgets", budgetRoutes);
 
 // 404 Not Found Handler
 app.use((req, res) => {

@@ -8,7 +8,7 @@ const GEMINI_MODELS = [
   "gemini-3.6-flash",
 ];
 
-async function callGemini(parts, systemInstruction = "") {
+async function callGemini(parts, systemInstruction = "", options = {}) {
   const apiKey = env.GEMINI_API_KEY || process.env.GEMINI_API_KEY;
 
   if (!apiKey) {
@@ -17,11 +17,21 @@ async function callGemini(parts, systemInstruction = "") {
     throw error;
   }
 
+  const isJson = options.isJson !== false;
+  const temperature = options.temperature !== undefined ? options.temperature : 0.1;
+
   let lastError = null;
 
   for (const model of GEMINI_MODELS) {
     try {
       const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`;
+
+      const generationConfig = {
+        temperature,
+      };
+      if (isJson) {
+        generationConfig.responseMimeType = "application/json";
+      }
 
       const requestBody = {
         contents: [
@@ -30,10 +40,7 @@ async function callGemini(parts, systemInstruction = "") {
             parts,
           },
         ],
-        generationConfig: {
-          responseMimeType: "application/json",
-          temperature: 0.1,
-        },
+        generationConfig,
       };
 
       if (systemInstruction) {
@@ -46,6 +53,7 @@ async function callGemini(parts, systemInstruction = "") {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(requestBody),
+        signal: AbortSignal.timeout(12000),
       });
 
       const data = await res.json();
@@ -59,7 +67,7 @@ async function callGemini(parts, systemInstruction = "") {
         throw new Error("Empty response from AI model");
       }
 
-      return JSON.parse(rawText);
+      return isJson ? JSON.parse(rawText) : rawText;
     } catch (err) {
       lastError = err;
       console.warn(`[AI] Attempt with ${model} failed: ${err.message}. Trying next fallback...`);
