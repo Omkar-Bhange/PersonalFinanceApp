@@ -107,6 +107,8 @@ const bulkSchema = z.object({
   account_id: z.coerce.number().int().positive().nullable().optional(),
   account_name: z.string().trim().max(100).nullable().optional(),
   sync_closing_balance: z.coerce.number().finite().nullable().optional(),
+  statement_opening_balance: z.coerce.number().finite().nullable().optional(),
+  sync_opening_balance: z.boolean().optional(),
   transactions: z
     .array(
       z.object({

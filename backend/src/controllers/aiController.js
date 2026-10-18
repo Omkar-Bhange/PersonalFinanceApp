@@ -157,6 +157,7 @@ async function parseStatement(req, res) {
       detected_new_categories: uniqueNewCategories,
       statement_closing_balance: parsedData.statement_closing_balance ?? null,
       statement_opening_balance: parsedData.statement_opening_balance ?? null,
+      reconciliation: parsedData.reconciliation || null,
       data: finalTransactions,
     });
   } catch (error) {

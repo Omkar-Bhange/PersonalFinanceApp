@@ -39,20 +39,40 @@ function parseExcelOrCsvStatement(buffer, originalFilename = "") {
 
     const { headerRowIndex, colMap } = headerInfo;
 
-    // 3. Extract transaction rows
-    const transactions = [];
-    let closingBalance = null;
-    let openingBalance = null;
+    // 3. Extract opening / closing balances from header metadata (if explicitly stated)
+    const metaBalances = extractMetadataBalances(rows, headerRowIndex);
+    let openingBalance = metaBalances.openingBalance;
+    let closingBalance = metaBalances.closingBalance;
+
+    // 4. Extract transaction rows
+    const rawTransactions = [];
 
     for (let i = headerRowIndex + 1; i < rows.length; i++) {
       const row = rows[i];
       if (!Array.isArray(row) || row.length === 0) continue;
 
+      const narrationRaw = String(row[colMap.narrationIndex] || "").trim();
       const dateRaw = row[colMap.dateIndex];
       const parsedDate = parseDateValue(dateRaw);
+
+      // Check if this row is an explicit Opening Balance / Brought Forward entry in the table
+      const isOpeningBalRow =
+        /(?:brought\s*forward|\bopening\s*bal(?:ance)?\b|\bbal(?:ance)?\s*b\/?f\b)/i.test(narrationRaw);
+
+      if (isOpeningBalRow) {
+        if (openingBalance === null && colMap.balanceIndex !== -1) {
+          const bal = parseNumeric(row[colMap.balanceIndex]);
+          if (!isNaN(bal) && bal !== 0) openingBalance = bal;
+        } else if (openingBalance === null && colMap.amountIndex !== -1) {
+          const amt = parseNumeric(row[colMap.amountIndex]);
+          if (!isNaN(amt) && amt !== 0) openingBalance = amt;
+        }
+        // Skip adding the opening balance ledger row as a normal debit/credit transaction
+        continue;
+      }
+
       if (!parsedDate) continue; // Skip non-data or footer rows
 
-      const narrationRaw = String(row[colMap.narrationIndex] || "").trim();
       const refNo = colMap.refIndex !== -1 ? String(row[colMap.refIndex] || "").trim() : "";
 
       let debit = 0;
@@ -84,22 +104,18 @@ function parseExcelOrCsvStatement(buffer, originalFilename = "") {
       const amount = isExpense ? debit : credit;
       const transactionType = isExpense ? "EXPENSE" : "INCOME";
 
-      // Extract balance if present
+      // Extract running balance if present
       let rowBalance = null;
       if (colMap.balanceIndex !== -1) {
         const balVal = parseNumeric(row[colMap.balanceIndex]);
         if (!isNaN(balVal) && balVal !== 0) {
           rowBalance = balVal;
-          closingBalance = balVal;
-          if (openingBalance === null) {
-            openingBalance = isExpense ? balVal + amount : balVal - amount;
-          }
         }
       }
 
       const merchant = cleanMerchantName(narrationRaw);
 
-      transactions.push({
+      rawTransactions.push({
         transaction_date: parsedDate,
         raw_narration: narrationRaw,
         merchant: merchant || (isExpense ? "Expense" : "Income"),
@@ -111,21 +127,140 @@ function parseExcelOrCsvStatement(buffer, originalFilename = "") {
       });
     }
 
-    if (transactions.length === 0) {
+    if (rawTransactions.length === 0) {
       throw new Error("No transaction rows found under the detected table headers.");
     }
+
+    // 5. Determine chronological order (Ascending vs Descending)
+    // Compare dates of the first and last transaction
+    const firstTx = rawTransactions[0];
+    const lastTx = rawTransactions[rawTransactions.length - 1];
+    const isDescending =
+      firstTx.transaction_date &&
+      lastTx.transaction_date &&
+      new Date(firstTx.transaction_date) > new Date(lastTx.transaction_date);
+
+    let transactions = rawTransactions;
+    if (isDescending) {
+      // Descending: First row is latest transaction, last row is earliest
+      if (closingBalance === null && firstTx.balance_after !== null) {
+        closingBalance = firstTx.balance_after;
+      }
+      if (openingBalance === null && lastTx.balance_after !== null) {
+        openingBalance =
+          lastTx.transaction_type === "EXPENSE"
+            ? lastTx.balance_after + lastTx.amount
+            : lastTx.balance_after - lastTx.amount;
+      }
+      // Reverse array so transactions are saved chronologically (oldest to newest)
+      transactions = [...rawTransactions].reverse();
+    } else {
+      // Ascending: First row is earliest transaction, last row is latest
+      if (openingBalance === null && firstTx.balance_after !== null) {
+        openingBalance =
+          firstTx.transaction_type === "EXPENSE"
+            ? firstTx.balance_after + firstTx.amount
+            : firstTx.balance_after - firstTx.amount;
+      }
+      if (closingBalance === null && lastTx.balance_after !== null) {
+        closingBalance = lastTx.balance_after;
+      }
+    }
+
+    // 6. Mathematical Reconciliation Verification
+    let totalIncome = 0;
+    let totalExpense = 0;
+    for (const tx of transactions) {
+      if (tx.transaction_type === "INCOME") {
+        totalIncome += tx.amount;
+      } else {
+        totalExpense += tx.amount;
+      }
+    }
+
+    const netFlow = totalIncome - totalExpense;
+    let calculatedClosing = null;
+    let difference = null;
+    let isReconciled = false;
+
+    if (openingBalance !== null) {
+      openingBalance = Math.round(openingBalance * 100) / 100;
+      calculatedClosing = Math.round((openingBalance + netFlow) * 100) / 100;
+
+      if (closingBalance === null) {
+        closingBalance = calculatedClosing;
+        difference = 0;
+        isReconciled = true;
+      } else {
+        closingBalance = Math.round(closingBalance * 100) / 100;
+        difference = Math.round(Math.abs(calculatedClosing - closingBalance) * 100) / 100;
+        isReconciled = difference < 0.05;
+      }
+    } else if (closingBalance !== null) {
+      closingBalance = Math.round(closingBalance * 100) / 100;
+      openingBalance = Math.round((closingBalance - netFlow) * 100) / 100;
+      calculatedClosing = closingBalance;
+      difference = 0;
+      isReconciled = true;
+    }
+
+    const reconciliation = {
+      statement_opening_balance: openingBalance,
+      total_income: Math.round(totalIncome * 100) / 100,
+      total_expense: Math.round(totalExpense * 100) / 100,
+      net_flow: Math.round(netFlow * 100) / 100,
+      calculated_closing_balance: calculatedClosing,
+      statement_closing_balance: closingBalance,
+      difference,
+      is_reconciled: isReconciled,
+    };
 
     return {
       success: true,
       detected_account: detectedAccount,
       statement_closing_balance: closingBalance,
       statement_opening_balance: openingBalance,
+      reconciliation,
       count: transactions.length,
       transactions,
     };
   } catch (err) {
     throw new Error(`Excel statement parsing failed: ${err.message}`);
   }
+}
+
+function extractMetadataBalances(rows, headerRowIndex) {
+  let openingBalance = null;
+  let closingBalance = null;
+  const maxRow = headerRowIndex > 0 ? Math.min(headerRowIndex, 35) : Math.min(rows.length, 35);
+
+  for (let r = 0; r < maxRow; r++) {
+    const row = rows[r];
+    if (!Array.isArray(row)) continue;
+    const lineText = row.map((c) => String(c || "")).join(" ");
+
+    // Opening Balance / Brought Forward / Bal B/F
+    if (openingBalance === null) {
+      const obMatch = lineText.match(
+        /(?:brought\s*forward|opening\s*bal(?:ance)?|start\s*bal(?:ance)?|bal(?:ance)?\s*b\/?f)[^0-9]*?([0-9,]+(?:\.[0-9]{1,2})?)\s*(?:cr|dr)?/i
+      );
+      if (obMatch && obMatch[1]) {
+        openingBalance = parseNumeric(obMatch[1]);
+      }
+    }
+
+    // Closing Balance / Clear Balance / Bal C/F
+    if (closingBalance === null) {
+      const cbMatch = lineText.match(
+        /(?:clear\s*bal(?:ance)?|closing\s*bal(?:ance)?|end(?:ing)?\s*bal(?:ance)?|bal(?:ance)?\s*c\/?f)[^0-9]*?([0-9,]+(?:\.[0-9]{1,2})?)\s*(?:cr|dr)?/i
+      );
+      if (cbMatch && cbMatch[1]) {
+        closingBalance = parseNumeric(cbMatch[1]);
+      }
+    }
+  }
+
+  return { openingBalance, closingBalance };
 }
 
 function extractAccountMetadata(rows) {

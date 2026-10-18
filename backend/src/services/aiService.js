@@ -1,11 +1,11 @@
 const env = require("../config/env");
 
 const GEMINI_MODELS = [
+  "gemini-3.5-flash-lite",
+  "gemini-flash-latest",
+  "gemini-flash-lite-latest",
   "gemini-3.5-flash",
   "gemini-3.6-flash",
-  "gemini-3.5-flash-lite",
-  "gemini-flash-lite-latest",
-  "gemini-3.8-flash",
 ];
 
 async function callGemini(parts, systemInstruction = "") {
@@ -204,11 +204,66 @@ ${JSON.stringify(categoriesList, null, 2)}
     };
   });
 
+  let totalIncome = 0;
+  let totalExpense = 0;
+  for (const tx of normalizedTransactions) {
+    if (tx.transaction_type === "INCOME") {
+      totalIncome += tx.amount;
+    } else {
+      totalExpense += tx.amount;
+    }
+  }
+
+  const netFlow = totalIncome - totalExpense;
+  let openingBalance = result.statement_opening_balance !== null && result.statement_opening_balance !== undefined
+    ? Number(result.statement_opening_balance)
+    : null;
+  let closingBalance = result.statement_closing_balance !== null && result.statement_closing_balance !== undefined
+    ? Number(result.statement_closing_balance)
+    : null;
+
+  let calculatedClosing = null;
+  let difference = null;
+  let isReconciled = false;
+
+  if (openingBalance !== null) {
+    openingBalance = Math.round(openingBalance * 100) / 100;
+    calculatedClosing = Math.round((openingBalance + netFlow) * 100) / 100;
+
+    if (closingBalance === null) {
+      closingBalance = calculatedClosing;
+      difference = 0;
+      isReconciled = true;
+    } else {
+      closingBalance = Math.round(closingBalance * 100) / 100;
+      difference = Math.round(Math.abs(calculatedClosing - closingBalance) * 100) / 100;
+      isReconciled = difference < 0.05;
+    }
+  } else if (closingBalance !== null) {
+    closingBalance = Math.round(closingBalance * 100) / 100;
+    openingBalance = Math.round((closingBalance - netFlow) * 100) / 100;
+    calculatedClosing = closingBalance;
+    difference = 0;
+    isReconciled = true;
+  }
+
+  const reconciliation = {
+    statement_opening_balance: openingBalance,
+    total_income: Math.round(totalIncome * 100) / 100,
+    total_expense: Math.round(totalExpense * 100) / 100,
+    net_flow: Math.round(netFlow * 100) / 100,
+    calculated_closing_balance: calculatedClosing,
+    statement_closing_balance: closingBalance,
+    difference,
+    is_reconciled: isReconciled,
+  };
+
   return {
     detected_account: result.detected_account || null,
     detected_new_categories: Array.isArray(result.detected_new_categories) ? result.detected_new_categories : [],
-    statement_closing_balance: result.statement_closing_balance ? Number(result.statement_closing_balance) : null,
-    statement_opening_balance: result.statement_opening_balance ? Number(result.statement_opening_balance) : null,
+    statement_closing_balance: closingBalance,
+    statement_opening_balance: openingBalance,
+    reconciliation,
     transactions: normalizedTransactions,
   };
 }

@@ -78,7 +78,17 @@ async function createTransaction(userId, data) {
   return result.rows[0];
 }
 
-async function createBulkTransactions(userId, { account_id, account_name, transactions, sync_closing_balance }) {
+async function createBulkTransactions(
+  userId,
+  {
+    account_id,
+    account_name,
+    transactions,
+    sync_closing_balance,
+    statement_opening_balance,
+    sync_opening_balance,
+  }
+) {
   if (!transactions || !transactions.length) {
     return [];
   }
@@ -203,7 +213,23 @@ async function createBulkTransactions(userId, { account_id, account_name, transa
       inserted.push(res.rows[0]);
     }
 
-    // If sync_closing_balance is provided, adjust account opening_balance so current_balance equals statement closing balance
+    // 1. If sync_opening_balance is requested and statement_opening_balance is provided
+    if (
+      sync_opening_balance &&
+      statement_opening_balance !== undefined &&
+      statement_opening_balance !== null &&
+      !isNaN(Number(statement_opening_balance))
+    ) {
+      const targetOpening = Number(statement_opening_balance);
+      await client.query(
+        `UPDATE accounts
+         SET opening_balance = $1, updated_at = NOW()
+         WHERE id = $2 AND user_id = $3`,
+        [targetOpening, targetAccountId, userId]
+      );
+    }
+
+    // 2. If sync_closing_balance is provided, adjust account opening_balance so current_balance equals statement closing balance
     if (sync_closing_balance !== undefined && sync_closing_balance !== null && !isNaN(Number(sync_closing_balance))) {
       const targetClosingBalance = Number(sync_closing_balance);
 

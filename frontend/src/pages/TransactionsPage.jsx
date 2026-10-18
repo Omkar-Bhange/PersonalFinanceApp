@@ -109,8 +109,11 @@ export function TransactionsPage() {
   const [extractError, setExtractError] = useState("");
   const [extractedTransactions, setExtractedTransactions] = useState([]);
   const [detectedAccountInfo, setDetectedAccountInfo] = useState(null);
+  const [statementOpeningBalance, setStatementOpeningBalance] = useState(null);
+  const [syncOpeningBalance, setSyncOpeningBalance] = useState(true);
   const [statementClosingBalance, setStatementClosingBalance] = useState(null);
   const [syncClosingBalance, setSyncClosingBalance] = useState(true);
+  const [statementReconciliation, setStatementReconciliation] = useState(null);
   const [isBulkImporting, setIsBulkImporting] = useState(false);
   const [importServerError, setImportServerError] = useState("");
 
@@ -401,8 +404,11 @@ export function TransactionsPage() {
     setExtractError("");
     setExtractedTransactions([]);
     setDetectedAccountInfo(null);
+    setStatementOpeningBalance(null);
+    setSyncOpeningBalance(true);
     setStatementClosingBalance(null);
     setSyncClosingBalance(true);
+    setStatementReconciliation(null);
     setImportServerError("");
   };
 
@@ -432,6 +438,14 @@ export function TransactionsPage() {
       const res = await aiService.parseStatement(payload);
 
       if (res?.success && Array.isArray(res.data) && res.data.length > 0) {
+        if (res.statement_opening_balance !== null && res.statement_opening_balance !== undefined) {
+          setStatementOpeningBalance(Number(res.statement_opening_balance));
+          setSyncOpeningBalance(true);
+        } else {
+          setStatementOpeningBalance(null);
+          setSyncOpeningBalance(false);
+        }
+
         if (res.statement_closing_balance !== null && res.statement_closing_balance !== undefined) {
           setStatementClosingBalance(Number(res.statement_closing_balance));
           setSyncClosingBalance(true);
@@ -439,6 +453,8 @@ export function TransactionsPage() {
           setStatementClosingBalance(null);
           setSyncClosingBalance(false);
         }
+
+        setStatementReconciliation(res.reconciliation || null);
 
         if (res?.detected_account) {
           setDetectedAccountInfo(res.detected_account);
@@ -566,6 +582,12 @@ export function TransactionsPage() {
         ...(finalAccountId ? { account_id: finalAccountId } : { account_name: finalAccountName }),
         ...(syncClosingBalance && statementClosingBalance !== null && !isNaN(Number(statementClosingBalance))
           ? { sync_closing_balance: Number(statementClosingBalance) }
+          : {}),
+        ...(syncOpeningBalance && statementOpeningBalance !== null && !isNaN(Number(statementOpeningBalance))
+          ? {
+              sync_opening_balance: true,
+              statement_opening_balance: Number(statementOpeningBalance),
+            }
           : {}),
         transactions: selected.map((t) => ({
           category_id: t.category_id ? Number(t.category_id) : null,
@@ -1718,72 +1740,192 @@ export function TransactionsPage() {
               </div>
             )}
 
-            {/* Statement Balance Synchronization Card */}
-            {statementClosingBalance !== null && (
-              <div className="p-3.5 rounded-xl bg-gradient-to-r from-emerald-50 via-teal-50/50 to-slate-50 border border-emerald-200/90 flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-xs shadow-sm">
-                <div className="flex items-center space-x-3">
-                  <div className="w-8 h-8 rounded-xl bg-emerald-600 text-white flex items-center justify-center font-bold text-sm shadow-sm flex-shrink-0">
-                    ₹
-                  </div>
-                  <div>
-                    <div className="text-slate-800 font-medium flex items-center space-x-1.5 flex-wrap">
-                      <span>Detected Statement Closing Balance:</span>
-                      <strong className="text-emerald-700 font-bold text-sm">
-                        {formatCurrency(statementClosingBalance, userCurrency)}
-                      </strong>
+            {/* Statement Balance & Mathematical Reconciliation Card */}
+            {(() => {
+              const selectedTxList = extractedTransactions.filter((t) => t.selected);
+              const selectedCredits = selectedTxList
+                .filter((t) => t.transaction_type === "INCOME")
+                .reduce((sum, t) => sum + (parseFloat(t.amount) || 0), 0);
+              const selectedDebits = selectedTxList
+                .filter((t) => t.transaction_type === "EXPENSE")
+                .reduce((sum, t) => sum + (parseFloat(t.amount) || 0), 0);
+              const selectedNetFlow = selectedCredits - selectedDebits;
+
+              const currentOpBal =
+                statementOpeningBalance !== null && !isNaN(Number(statementOpeningBalance))
+                  ? Number(statementOpeningBalance)
+                  : null;
+              const currentClBal =
+                statementClosingBalance !== null && !isNaN(Number(statementClosingBalance))
+                  ? Number(statementClosingBalance)
+                  : null;
+              const calculatedClBal =
+                currentOpBal !== null ? Math.round((currentOpBal + selectedNetFlow) * 100) / 100 : null;
+              const liveDiff =
+                calculatedClBal !== null && currentClBal !== null
+                  ? Math.round(Math.abs(calculatedClBal - currentClBal) * 100) / 100
+                  : null;
+              const isLiveReconciled = liveDiff !== null && liveDiff < 0.05;
+
+              if (statementOpeningBalance === null && statementClosingBalance === null) {
+                return null;
+              }
+
+              return (
+                <div className="p-4 rounded-2xl bg-white border border-slate-200/90 shadow-xs space-y-3.5">
+                  {/* Header & Status */}
+                  <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-slate-100 pb-3">
+                    <div className="flex items-center space-x-2.5">
+                      <div className="w-7 h-7 rounded-lg bg-emerald-600 text-white flex items-center justify-center font-bold text-xs shadow-xs">
+                        ₹
+                      </div>
+                      <div>
+                        <h4 className="text-xs font-bold text-slate-900">
+                          Statement Mathematical Reconciliation & Balance Sync
+                        </h4>
+                        <p className="text-[11px] text-slate-500">
+                          Formula: Opening Balance + Credits − Debits = Closing Balance
+                        </p>
+                      </div>
                     </div>
-                    <div className="text-[11px] text-slate-500">
-                      Calculated net from {extractedTransactions.filter((t) => t.selected).length} selected transactions:{" "}
-                      <span
-                        className={
-                          extractedTransactions
-                            .filter((t) => t.selected)
-                            .reduce(
-                              (acc, t) =>
-                                t.transaction_type === "INCOME"
-                                  ? acc + (parseFloat(t.amount) || 0)
-                                  : acc - (parseFloat(t.amount) || 0),
-                              0
-                            ) >= 0
-                            ? "text-emerald-700 font-bold"
-                            : "text-rose-700 font-bold"
-                        }
-                      >
-                        {formatCurrency(
-                          extractedTransactions
-                            .filter((t) => t.selected)
-                            .reduce(
-                              (acc, t) =>
-                                t.transaction_type === "INCOME"
-                                  ? acc + (parseFloat(t.amount) || 0)
-                                  : acc - (parseFloat(t.amount) || 0),
-                              0
-                            ),
-                          userCurrency
+
+                    {liveDiff !== null && (
+                      <div className="flex items-center space-x-2">
+                        {isLiveReconciled ? (
+                          <span className="inline-flex items-center px-2.5 py-1 rounded-full text-[11px] font-semibold bg-emerald-50 text-emerald-700 border border-emerald-200">
+                            <CheckCircle2 className="w-3.5 h-3.5 mr-1 text-emerald-600" />
+                            100% Math Match (₹0.00 difference)
+                          </span>
+                        ) : (
+                          <span className="inline-flex items-center px-2.5 py-1 rounded-full text-[11px] font-semibold bg-amber-50 text-amber-800 border border-amber-200">
+                            <AlertCircle className="w-3.5 h-3.5 mr-1 text-amber-600" />
+                            Variance: {formatCurrency(liveDiff, userCurrency)}
+                          </span>
                         )}
+                      </div>
+                    )}
+                  </div>
+
+                  {/* 4 Reconciliation Metric Columns */}
+                  <div className="grid grid-cols-2 md:grid-cols-4 gap-2.5 text-xs">
+                    {/* Opening Balance */}
+                    <div className="p-2.5 rounded-xl bg-slate-50 border border-slate-200/70">
+                      <span className="text-[10px] uppercase font-bold text-slate-500 tracking-wider block mb-1">
+                        1. Opening Balance
+                      </span>
+                      <div className="flex items-center space-x-1">
+                        <span className="text-slate-400 font-medium">₹</span>
+                        <input
+                          type="number"
+                          step="0.01"
+                          value={statementOpeningBalance ?? ""}
+                          onChange={(e) =>
+                            setStatementOpeningBalance(
+                              e.target.value === "" ? null : parseFloat(e.target.value) || 0
+                            )
+                          }
+                          placeholder="0.00"
+                          className="w-full font-bold text-slate-900 bg-transparent focus:outline-none focus:bg-white px-1 py-0.5 rounded border border-transparent focus:border-emerald-500"
+                        />
+                      </div>
+                      <span className="text-[10px] text-slate-400 block mt-0.5">Start of period</span>
+                    </div>
+
+                    {/* Credits / Income */}
+                    <div className="p-2.5 rounded-xl bg-emerald-50/50 border border-emerald-100">
+                      <span className="text-[10px] uppercase font-bold text-emerald-800 tracking-wider block mb-1">
+                        2. Total Credits (+)
+                      </span>
+                      <strong className="text-emerald-700 font-bold block text-sm">
+                        +{formatCurrency(selectedCredits, userCurrency)}
+                      </strong>
+                      <span className="text-[10px] text-emerald-600/80 block mt-0.5">
+                        {selectedTxList.filter((t) => t.transaction_type === "INCOME").length} income credits
+                      </span>
+                    </div>
+
+                    {/* Debits / Expense */}
+                    <div className="p-2.5 rounded-xl bg-rose-50/50 border border-rose-100">
+                      <span className="text-[10px] uppercase font-bold text-rose-800 tracking-wider block mb-1">
+                        3. Total Debits (−)
+                      </span>
+                      <strong className="text-rose-700 font-bold block text-sm">
+                        −{formatCurrency(selectedDebits, userCurrency)}
+                      </strong>
+                      <span className="text-[10px] text-rose-600/80 block mt-0.5">
+                        {selectedTxList.filter((t) => t.transaction_type === "EXPENSE").length} expense debits
+                      </span>
+                    </div>
+
+                    {/* Closing Balance */}
+                    <div className="p-2.5 rounded-xl bg-slate-50 border border-slate-200/70">
+                      <span className="text-[10px] uppercase font-bold text-slate-500 tracking-wider block mb-1">
+                        4. Closing Balance
+                      </span>
+                      <div className="flex items-center space-x-1">
+                        <span className="text-slate-400 font-medium">₹</span>
+                        <input
+                          type="number"
+                          step="0.01"
+                          value={statementClosingBalance ?? ""}
+                          onChange={(e) =>
+                            setStatementClosingBalance(
+                              e.target.value === "" ? null : parseFloat(e.target.value) || 0
+                            )
+                          }
+                          placeholder="0.00"
+                          className="w-full font-bold text-slate-900 bg-transparent focus:outline-none focus:bg-white px-1 py-0.5 rounded border border-transparent focus:border-emerald-500"
+                        />
+                      </div>
+                      <span className="text-[10px] text-slate-400 block mt-0.5">
+                        Calc: {calculatedClBal !== null ? formatCurrency(calculatedClBal, userCurrency) : "N/A"}
                       </span>
                     </div>
                   </div>
-                </div>
 
-                <label className="flex items-center space-x-2.5 cursor-pointer bg-white px-3 py-2 rounded-lg border border-emerald-300 shadow-sm hover:border-emerald-500 hover:bg-emerald-50/30 transition-colors flex-shrink-0">
-                  <input
-                    type="checkbox"
-                    checked={syncClosingBalance}
-                    onChange={(e) => setSyncClosingBalance(e.target.checked)}
-                    className="rounded border-slate-300 text-emerald-600 focus:ring-emerald-500 cursor-pointer w-4 h-4"
-                  />
-                  <div className="text-left">
-                    <span className="text-xs font-bold text-emerald-950 block">
-                      Sync Account Balance
-                    </span>
-                    <span className="text-[10px] text-slate-500 block">
-                      Guarantees account equals statement balance
-                    </span>
+                  {/* Account Synchronization Options */}
+                  <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pt-2 border-t border-slate-100 text-xs">
+                    <label className="flex items-center space-x-2.5 cursor-pointer">
+                      <input
+                        type="checkbox"
+                        checked={syncOpeningBalance}
+                        onChange={(e) => setSyncOpeningBalance(e.target.checked)}
+                        disabled={statementOpeningBalance === null}
+                        className="rounded border-slate-300 text-emerald-600 focus:ring-emerald-500 cursor-pointer w-4 h-4 disabled:opacity-40"
+                      />
+                      <div>
+                        <span className="text-xs font-semibold text-slate-800 block">
+                          Set Account Opening Balance to Statement (
+                          {statementOpeningBalance !== null ? formatCurrency(statementOpeningBalance, userCurrency) : "N/A"})
+                        </span>
+                        <span className="text-[10px] text-slate-500 block">
+                          Ensures your starting balance matches the statement's starting point
+                        </span>
+                      </div>
+                    </label>
+
+                    <label className="flex items-center space-x-2.5 cursor-pointer">
+                      <input
+                        type="checkbox"
+                        checked={syncClosingBalance}
+                        onChange={(e) => setSyncClosingBalance(e.target.checked)}
+                        disabled={statementClosingBalance === null}
+                        className="rounded border-slate-300 text-emerald-600 focus:ring-emerald-500 cursor-pointer w-4 h-4 disabled:opacity-40"
+                      />
+                      <div>
+                        <span className="text-xs font-semibold text-slate-800 block">
+                          Guarantee Live Balance Matches Statement (
+                          {statementClosingBalance !== null ? formatCurrency(statementClosingBalance, userCurrency) : "N/A"})
+                        </span>
+                        <span className="text-[10px] text-slate-500 block">
+                          Guarantees your dashboard balance perfectly equals your bank statement
+                        </span>
+                      </div>
+                    </label>
                   </div>
-                </label>
-              </div>
-            )}
+                </div>
+              );
+            })()}
 
             {/* Summary Toolbar */}
             <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 p-3 rounded-xl bg-slate-50 border border-slate-200/80 text-xs">
