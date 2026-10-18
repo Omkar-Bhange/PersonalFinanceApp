@@ -1,9 +1,11 @@
 const env = require("../config/env");
 
 const GEMINI_MODELS = [
+  "gemini-3.5-flash",
+  "gemini-3.6-flash",
+  "gemini-3.5-flash-lite",
+  "gemini-flash-lite-latest",
   "gemini-3.8-flash",
-  "gemini-flash-latest",
-  "gemini-2.5-flash-lite",
 ];
 
 async function callGemini(parts, systemInstruction = "") {
@@ -176,19 +178,34 @@ ${JSON.stringify(categoriesList, null, 2)}
 
   const result = await callGemini(parts, systemInstruction);
 
-  // Normalize result format
-  if (Array.isArray(result)) {
+  // Normalize result format and transaction fields
+  const rawTransactions = Array.isArray(result)
+    ? result
+    : Array.isArray(result.transactions)
+    ? result.transactions
+    : [];
+
+  const normalizedTransactions = rawTransactions.map((tx) => {
+    const rawType = String(tx.transaction_type || "").toUpperCase();
+    const narration = String(tx.raw_narration || "").toUpperCase();
+    const isIncome =
+      rawType === "INCOME" ||
+      rawType === "CREDIT" ||
+      rawType === "CR" ||
+      narration.includes("UPI/CR") ||
+      narration.includes("DEP TFR");
+
     return {
-      detected_account: null,
-      detected_new_categories: [],
-      transactions: result,
+      ...tx,
+      transaction_type: isIncome ? "INCOME" : "EXPENSE",
+      amount: Math.abs(parseFloat(tx.amount) || 0),
     };
-  }
+  });
 
   return {
     detected_account: result.detected_account || null,
     detected_new_categories: Array.isArray(result.detected_new_categories) ? result.detected_new_categories : [],
-    transactions: Array.isArray(result.transactions) ? result.transactions : [],
+    transactions: normalizedTransactions,
   };
 }
 
