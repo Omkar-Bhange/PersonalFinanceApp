@@ -309,8 +309,17 @@ export function BudgetsPage() {
     return d.toLocaleDateString("en-US", { month: "long", year: "numeric" });
   }, [selectedMonth]);
 
-  const summary = budgetData?.summary;
-  const overallBudget = budgetData?.overall_budget;
+  const summary = budgetData?.summary || {
+    total_limit: 0,
+    total_spent: 0,
+    total_remaining: 0,
+    percentage: 0,
+    projected_spend: 0,
+    transaction_count: 0,
+    has_overall_budget: false,
+    status: "ON_TRACK",
+  };
+  const overallBudget = budgetData?.overall_budget || null;
   const categoryBudgets = budgetData?.category_budgets || [];
   const unbudgetedCategories = budgetData?.unbudgeted_categories || [];
 
@@ -448,8 +457,16 @@ export function BudgetsPage() {
 
       {/* ================= TAB 1: MONTHLY BUDGETS ================= */}
       {activeTab === "budgets" && (
-        <div className="space-y-6">
-          {/* Overall Monthly Card */}
+        isLoading ? (
+          <Card className="bg-slate-900/60 border-slate-800 p-12 text-center">
+            <div className="flex flex-col items-center justify-center space-y-3">
+              <RefreshCw className="w-8 h-8 animate-spin text-emerald-400" />
+              <span className="text-sm font-medium text-slate-400">Loading monthly budget data...</span>
+            </div>
+          </Card>
+        ) : (
+          <div className="space-y-6">
+            {/* Overall Monthly Card */}
           <Card className="bg-gradient-to-br from-slate-900 via-slate-900 to-slate-950 border-slate-800 shadow-xl relative overflow-hidden">
             <div className="absolute top-0 right-0 p-8 opacity-5 pointer-events-none">
               <Target className="w-64 h-64 text-emerald-400" />
@@ -510,9 +527,9 @@ export function BudgetsPage() {
                 <div className="flex justify-between text-xs text-slate-400">
                   <span>{summary?.percentage || 0}% consumed</span>
                   <span>
-                    {summary?.total_remaining >= 0
-                      ? `${formatCurrency(summary.total_remaining, userCurrency)} remaining`
-                      : `${formatCurrency(Math.abs(summary.total_remaining), userCurrency)} over limit`}
+                    {(summary?.total_remaining ?? 0) >= 0
+                      ? `${formatCurrency(summary?.total_remaining ?? 0, userCurrency)} remaining`
+                      : `${formatCurrency(Math.abs(summary?.total_remaining ?? 0), userCurrency)} over limit`}
                   </span>
                 </div>
               </div>
@@ -673,12 +690,12 @@ export function BudgetsPage() {
                       {/* Footer Stats */}
                       <div className="flex items-center justify-between text-[11px] text-slate-400 pt-2 border-t border-slate-800/60">
                         <span>
-                          {b.remaining >= 0
-                            ? `₹${Math.round(b.remaining).toLocaleString("en-IN")} left`
-                            : `₹${Math.round(Math.abs(b.remaining)).toLocaleString("en-IN")} over`}
+                          {(b.remaining ?? 0) >= 0
+                            ? `₹${Math.round(b.remaining ?? 0).toLocaleString("en-IN")} left`
+                            : `₹${Math.round(Math.abs(b.remaining ?? 0)).toLocaleString("en-IN")} over`}
                         </span>
                         <span className="font-medium text-slate-300">
-                          Projected: ₹{Math.round(b.projected_spend).toLocaleString("en-IN")}
+                          Projected: ₹{Math.round(b.projected_spend ?? 0).toLocaleString("en-IN")}
                         </span>
                       </div>
                     </CardContent>
@@ -727,7 +744,8 @@ export function BudgetsPage() {
             </Card>
           )}
         </div>
-      )}
+      )
+    )}
 
       {/* ================= TAB 2: AI FINANCIAL ADVISOR ================= */}
       {activeTab === "ai_advisor" && (
@@ -1203,3 +1221,4 @@ export function BudgetsPage() {
     </div>
   );
 }
+

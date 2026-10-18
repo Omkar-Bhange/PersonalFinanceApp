@@ -24,3 +24,4 @@ router.get("/advisor-insights", getAdvisorInsights);
 router.post("/ask-advisor", askAdvisor);
 
 module.exports = router;
+

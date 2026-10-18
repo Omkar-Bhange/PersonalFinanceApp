@@ -24,3 +24,4 @@ CREATE INDEX IF NOT EXISTS idx_budgets_user_month_lookup
     ON budgets(user_id, month);
 
 COMMIT;
+
