@@ -29,6 +29,11 @@ export const transactionService = {
     return response.data;
   },
 
+  async createBulkTransactions(data) {
+    const response = await api.post("/transactions/bulk", data);
+    return response.data;
+  },
+
   async updateTransaction(id, data) {
     const response = await api.put(`/transactions/${id}`, data);
     return response.data;

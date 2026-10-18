@@ -15,6 +15,15 @@ import {
   Search,
   Edit2,
   Trash2,
+  Sparkles,
+  UploadCloud,
+  FileText,
+  FileSpreadsheet,
+  Check,
+  CheckSquare,
+  Square,
+  Layers,
+  Bot,
 } from "lucide-react";
 import { Card, CardHeader, CardTitle, CardDescription, CardContent } from "../components/common/Card";
 import { Button } from "../components/common/Button";
@@ -24,6 +33,7 @@ import { Modal } from "../components/common/Modal";
 import { transactionService } from "../services/transactionService";
 import { accountService } from "../services/accountService";
 import { categoryService } from "../services/categoryService";
+import { aiService } from "../services/aiService";
 import { useAuth } from "../hooks/useAuth";
 import { formatCurrency, formatDate } from "../utils/currency";
 
@@ -81,6 +91,20 @@ export function TransactionsPage() {
   const [txToDelete, setTxToDelete] = useState(null);
   const [deleteServerError, setDeleteServerError] = useState("");
   const [isDeleting, setIsDeleting] = useState(false);
+
+  // AI Statement Import Modal State
+  const [isImportModalOpen, setIsImportModalOpen] = useState(false);
+  const [importStep, setImportStep] = useState(1); // 1: Upload/Paste, 2: Review & Approve
+  const [importAccountId, setImportAccountId] = useState("");
+  const [importInputMode, setImportInputMode] = useState("file"); // "file" | "text"
+  const [importFile, setImportFile] = useState(null);
+  const [importText, setImportText] = useState("");
+  const [isExtracting, setIsExtracting] = useState(false);
+  const [extractError, setExtractError] = useState("");
+  const [extractedTransactions, setExtractedTransactions] = useState([]);
+  const [detectedAccountInfo, setDetectedAccountInfo] = useState(null);
+  const [isBulkImporting, setIsBulkImporting] = useState(false);
+  const [importServerError, setImportServerError] = useState("");
 
   // Load dropdown resources (accounts & categories)
   const fetchResources = useCallback(async () => {
@@ -312,6 +336,201 @@ export function TransactionsPage() {
     }
   };
 
+  // AI Statement Import Handlers
+  const handleOpenImportModal = () => {
+    setIsImportModalOpen(true);
+    setImportStep(1);
+    setImportAccountId(accounts.length > 0 ? String(accounts[0].id) : "__AUTO_DETECT__");
+    setImportInputMode("file");
+    setImportFile(null);
+    setImportText("");
+    setIsExtracting(false);
+    setExtractError("");
+    setExtractedTransactions([]);
+    setDetectedAccountInfo(null);
+    setImportServerError("");
+  };
+
+  const handleFileChange = (e) => {
+    const file = e.target.files?.[0];
+    if (file) {
+      setImportFile(file);
+      setExtractError("");
+    }
+  };
+
+  const handleStartAIExtraction = async () => {
+    if (importInputMode === "file" && !importFile) {
+      setExtractError("Please select a bank statement file (PDF, CSV, image) to upload.");
+      return;
+    }
+    if (importInputMode === "text" && !importText.trim()) {
+      setExtractError("Please paste your bank statement or SMS messages in the box.");
+      return;
+    }
+
+    setIsExtracting(true);
+    setExtractError("");
+
+    try {
+      const payload = importInputMode === "file" ? { file: importFile } : { text: importText.trim() };
+      const res = await aiService.parseStatement(payload);
+
+      if (res?.success && Array.isArray(res.data) && res.data.length > 0) {
+        if (res?.detected_account) {
+          setDetectedAccountInfo(res.detected_account);
+          if (res.detected_account.matched_account_id) {
+            setImportAccountId(String(res.detected_account.matched_account_id));
+          } else if (res.detected_account.suggested_account_name && (!importAccountId || importAccountId === "__AUTO_DETECT__")) {
+            setImportAccountId(`__NEW_ACC__:${res.detected_account.suggested_account_name}`);
+          }
+        }
+
+        const prepared = res.data.map((tx, idx) => ({
+          tempId: `ai-tx-${idx}-${Date.now()}`,
+          selected: true,
+          transaction_date: tx.transaction_date || new Date().toISOString().slice(0, 10),
+          merchant: tx.merchant || "",
+          description: tx.merchant || tx.raw_narration || "Imported transaction",
+          amount: String(tx.amount || ""),
+          transaction_type: tx.transaction_type || "EXPENSE",
+          category_id: tx.suggested_category_id ? String(tx.suggested_category_id) : "",
+          category_name: tx.suggested_category_name || "",
+          is_new_category: !tx.suggested_category_id && !!tx.suggested_category_name,
+          notes: tx.notes || tx.raw_narration || "",
+        }));
+
+        setExtractedTransactions(prepared);
+        setImportStep(2);
+      } else {
+        setExtractError("No valid financial transactions could be detected in the provided content. Please check the file or text and try again.");
+      }
+    } catch (err) {
+      setExtractError(err.message || "Failed to analyze statement with AI. Please check your Gemini API key or file format.");
+    } finally {
+      setIsExtracting(false);
+    }
+  };
+
+  const handleToggleSelectAll = (checked) => {
+    setExtractedTransactions((prev) =>
+      prev.map((t) => ({ ...t, selected: checked }))
+    );
+  };
+
+  const handleToggleRowSelect = (tempId) => {
+    setExtractedTransactions((prev) =>
+      prev.map((t) => (t.tempId === tempId ? { ...t, selected: !t.selected } : t))
+    );
+  };
+
+  const handleUpdateExtractedField = (tempId, field, value) => {
+    setExtractedTransactions((prev) =>
+      prev.map((t) => (t.tempId === tempId ? { ...t, [field]: value } : t))
+    );
+  };
+
+  const handleCategorySelectChange = (tempId, val) => {
+    setExtractedTransactions((prev) =>
+      prev.map((t) => {
+        if (t.tempId !== tempId) return t;
+        if (val.startsWith("__NEW__:")) {
+          const catName = val.replace("__NEW__:", "");
+          return { ...t, category_id: "", category_name: catName, is_new_category: true };
+        }
+        if (!val) {
+          return { ...t, category_id: "", category_name: "", is_new_category: false };
+        }
+        const matchedCat = categories.find((c) => String(c.id) === String(val));
+        return {
+          ...t,
+          category_id: String(val),
+          category_name: matchedCat ? matchedCat.name : "",
+          is_new_category: false,
+        };
+      })
+    );
+  };
+
+  const handleRemoveExtractedRow = (tempId) => {
+    setExtractedTransactions((prev) => prev.filter((t) => t.tempId !== tempId));
+  };
+
+  const handleConfirmBulkImport = async () => {
+    const selected = extractedTransactions.filter((t) => t.selected);
+    if (selected.length === 0) {
+      setImportServerError("Please select at least one transaction to import.");
+      return;
+    }
+
+    for (const item of selected) {
+      const amt = parseFloat(item.amount);
+      if (isNaN(amt) || amt <= 0) {
+        setImportServerError(`Invalid amount "${item.amount}" for ${item.merchant || "a transaction"}.`);
+        return;
+      }
+    }
+
+    setIsBulkImporting(true);
+    setImportServerError("");
+
+    try {
+      const isNewAccount = String(importAccountId).startsWith("__NEW_ACC__:");
+      const isAutoDetectAccount = importAccountId === "__AUTO_DETECT__";
+
+      let finalAccountId = null;
+      let finalAccountName = null;
+
+      if (isNewAccount) {
+        finalAccountName = importAccountId.replace("__NEW_ACC__:", "");
+      } else if (isAutoDetectAccount) {
+        if (detectedAccountInfo?.suggested_account_name) {
+          finalAccountName = detectedAccountInfo.suggested_account_name;
+        } else if (accounts.length > 0) {
+          finalAccountId = accounts[0].id;
+        } else {
+          finalAccountName = "Primary Bank Account";
+        }
+      } else if (importAccountId) {
+        finalAccountId = Number(importAccountId);
+      } else if (accounts.length > 0) {
+        finalAccountId = accounts[0].id;
+      } else {
+        finalAccountName = "Primary Bank Account";
+      }
+
+      const payload = {
+        ...(finalAccountId ? { account_id: finalAccountId } : { account_name: finalAccountName }),
+        transactions: selected.map((t) => ({
+          category_id: t.category_id ? Number(t.category_id) : null,
+          category_name: t.category_name ? t.category_name.trim() : null,
+          transaction_type: t.transaction_type,
+          amount: parseFloat(t.amount),
+          transaction_date: t.transaction_date,
+          description: t.description.trim() || t.merchant.trim() || null,
+          merchant: t.merchant.trim() || null,
+          notes: t.notes.trim() || null,
+        })),
+      };
+
+      const res = await transactionService.createBulkTransactions(payload);
+
+      if (res?.success) {
+        setIsImportModalOpen(false);
+        const targetAccName = finalAccountId
+          ? (accountMap.get(String(finalAccountId))?.name || "account")
+          : (finalAccountName || "new account");
+        setSuccessMessage(`Successfully imported ${res.count} transactions into ${targetAccName}!`);
+        setTimeout(() => setSuccessMessage(""), 5000);
+        await Promise.all([fetchTransactions(), fetchResources()]);
+      }
+    } catch (err) {
+      setImportServerError(err.message || "Failed to bulk import transactions.");
+    } finally {
+      setIsBulkImporting(false);
+    }
+  };
+
   const handleResetFilters = () => {
     setFilterType("");
     setFilterFrom("");
@@ -354,6 +573,18 @@ export function TransactionsPage() {
             <RefreshCw className={`w-4 h-4 ${isLoading ? "animate-spin" : ""}`} />
             <span className="hidden sm:inline">Refresh</span>
           </Button>
+
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={handleOpenImportModal}
+            className="flex items-center space-x-1.5 border-emerald-300 text-emerald-800 bg-emerald-50/70 hover:bg-emerald-100 hover:text-emerald-900 transition-colors shadow-xs"
+            title="Import Bank Statement or SMS with AI"
+          >
+            <Sparkles className="w-4 h-4 text-emerald-600" />
+            <span>Import with AI</span>
+          </Button>
+
           <Button
             variant="primary"
             size="sm"
@@ -1095,6 +1326,440 @@ export function TransactionsPage() {
             </Button>
           </div>
         </div>
+      </Modal>
+
+      {/* AI Statement & SMS Import Modal */}
+      <Modal
+        isOpen={isImportModalOpen}
+        onClose={() => !isExtracting && !isBulkImporting && setIsImportModalOpen(false)}
+        title={importStep === 1 ? "AI Bank Statement & SMS Importer" : "Review Extracted Transactions"}
+        description={
+          importStep === 1
+            ? "Upload bank statement PDF, CSV, receipt screenshot, or paste bank SMS to auto-extract transactions with Gemini AI"
+            : `AI detected ${extractedTransactions.length} transaction(s). Verify details and select which ones to import into ${accountMap.get(String(importAccountId))?.name || "your account"}.`
+        }
+        maxWidth={importStep === 1 ? "max-w-xl" : "max-w-5xl"}
+      >
+        {importStep === 1 ? (
+          <div className="space-y-4">
+            {extractError && (
+              <div
+                role="alert"
+                className="p-3.5 rounded-xl bg-rose-50 border border-rose-200 text-rose-800 text-xs flex items-start space-x-2.5 animate-fadeIn"
+              >
+                <AlertCircle className="w-4 h-4 text-rose-600 flex-shrink-0 mt-0.5" />
+                <span>{extractError}</span>
+              </div>
+            )}
+
+            {/* Target Account Selection */}
+            <div>
+              <label className="block text-xs font-semibold text-slate-700 uppercase tracking-wider mb-1.5">
+                Target Bank Account
+              </label>
+              <select
+                value={importAccountId}
+                onChange={(e) => setImportAccountId(e.target.value)}
+                disabled={isExtracting}
+                className="w-full rounded-xl border border-slate-300 px-3.5 py-2 text-sm text-slate-900 bg-white focus:outline-none focus:border-emerald-500 focus:ring-2 focus:ring-emerald-500/20 cursor-pointer"
+              >
+                <option value="__AUTO_DETECT__">
+                  ✨ Auto-detect Account from Statement
+                </option>
+                {accounts.map((acc) => (
+                  <option key={acc.id} value={acc.id}>
+                    {acc.name} ({formatCurrency(acc.current_balance, userCurrency)})
+                  </option>
+                ))}
+              </select>
+              <p className="text-[11px] text-slate-400 mt-1">
+                Gemini AI will automatically detect or match your bank account from the statement header.
+              </p>
+            </div>
+
+            {/* Input Mode Tabs */}
+            <div>
+              <div className="flex border-b border-slate-200 text-xs font-medium">
+                <button
+                  type="button"
+                  onClick={() => setImportInputMode("file")}
+                  className={`py-2 px-4 border-b-2 font-semibold transition-colors flex items-center space-x-2 ${
+                    importInputMode === "file"
+                      ? "border-emerald-600 text-emerald-800 bg-emerald-50/40"
+                      : "border-transparent text-slate-500 hover:text-slate-800"
+                  }`}
+                >
+                  <UploadCloud className="w-4 h-4" />
+                  <span>Upload Statement File</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setImportInputMode("text")}
+                  className={`py-2 px-4 border-b-2 font-semibold transition-colors flex items-center space-x-2 ${
+                    importInputMode === "text"
+                      ? "border-emerald-600 text-emerald-800 bg-emerald-50/40"
+                      : "border-transparent text-slate-500 hover:text-slate-800"
+                  }`}
+                >
+                  <FileText className="w-4 h-4" />
+                  <span>Paste Bank SMS / Text</span>
+                </button>
+              </div>
+
+              {/* File Upload Mode */}
+              {importInputMode === "file" && (
+                <div className="pt-4">
+                  <label
+                    htmlFor="statement-file-upload"
+                    className="border-2 border-dashed border-slate-300 hover:border-emerald-500 rounded-2xl p-6 flex flex-col items-center justify-center text-center cursor-pointer transition-colors bg-slate-50/60 hover:bg-emerald-50/30"
+                  >
+                    <input
+                      id="statement-file-upload"
+                      type="file"
+                      accept=".pdf,.csv,.txt,.png,.jpg,.jpeg,.webp"
+                      onChange={handleFileChange}
+                      className="hidden"
+                      disabled={isExtracting}
+                    />
+                    <div className="w-12 h-12 rounded-2xl bg-emerald-100/70 text-emerald-700 flex items-center justify-center mb-3">
+                      <UploadCloud className="w-6 h-6" />
+                    </div>
+                    {importFile ? (
+                      <div className="space-y-1">
+                        <span className="font-semibold text-sm text-slate-900 block">
+                          {importFile.name}
+                        </span>
+                        <span className="text-xs text-slate-500 block">
+                          {(importFile.size / 1024).toFixed(1)} KB • Click to choose a different file
+                        </span>
+                      </div>
+                    ) : (
+                      <div className="space-y-1">
+                        <span className="font-semibold text-sm text-slate-900 block">
+                          Click to upload or drag & drop bank statement
+                        </span>
+                        <span className="text-xs text-slate-500 block">
+                          PDF, CSV, Excel, or UPI Payment Screenshots (PNG, JPG)
+                        </span>
+                      </div>
+                    )}
+                  </label>
+                  <p className="text-[11px] text-slate-400 mt-2 text-center">
+                    Gemini AI automatically parses multi-column statement tables and ignores headers.
+                  </p>
+                </div>
+              )}
+
+              {/* Text / SMS Mode */}
+              {importInputMode === "text" && (
+                <div className="pt-4 space-y-2">
+                  <div className="flex items-center justify-between">
+                    <label className="text-xs font-medium text-slate-700">
+                      Bank SMS / Transaction Text
+                    </label>
+                    <button
+                      type="button"
+                      onClick={() =>
+                        setImportText(
+                          `Rs 450.00 debited from SBI A/C ...9821 on 15-Oct-26 to SWIGGY BANGALORE UPI ref 492019. Available bal: Rs 1,470.00.\nRs 1,200.00 debited from SBI A/C ...9821 on 16-Oct-26 to SHELL PETROL MUMBAI.\nRs 55,000.00 credited to A/C ...9821 on 01-Oct-26 by SALARY OCT 2026.`
+                        )
+                      }
+                      className="text-[11px] text-emerald-700 hover:text-emerald-900 font-semibold"
+                    >
+                      Paste Sample SBI SMS
+                    </button>
+                  </div>
+                  <textarea
+                    rows={6}
+                    value={importText}
+                    onChange={(e) => setImportText(e.target.value)}
+                    placeholder="Paste bank transaction SMS messages or raw statement lines here..."
+                    disabled={isExtracting}
+                    className="w-full rounded-xl border border-slate-300 p-3 text-xs font-mono text-slate-800 bg-white focus:outline-none focus:border-emerald-500 focus:ring-2 focus:ring-emerald-500/20"
+                  />
+                  <p className="text-[11px] text-slate-400">
+                    Paste multiple SMS messages separated by newlines. The AI will extract dates, merchants, and amounts.
+                  </p>
+                </div>
+              )}
+            </div>
+
+            <div className="pt-4 flex items-center justify-end space-x-3 border-t border-slate-100">
+              <Button
+                type="button"
+                variant="outline"
+                onClick={() => setIsImportModalOpen(false)}
+                disabled={isExtracting}
+              >
+                Cancel
+              </Button>
+              <Button
+                type="button"
+                variant="primary"
+                onClick={handleStartAIExtraction}
+                isLoading={isExtracting}
+                className="flex items-center space-x-2 bg-emerald-600 hover:bg-emerald-700"
+              >
+                <Sparkles className="w-4 h-4" />
+                <span>Extract with Gemini AI</span>
+              </Button>
+            </div>
+          </div>
+        ) : (
+          /* Step 2: Review and Approve Extracted Transactions */
+          <div className="space-y-4">
+            {importServerError && (
+              <div
+                role="alert"
+                className="p-3.5 rounded-xl bg-rose-50 border border-rose-200 text-rose-800 text-xs flex items-start space-x-2.5 animate-fadeIn"
+              >
+                <AlertCircle className="w-4 h-4 text-rose-600 flex-shrink-0 mt-0.5" />
+                <span>{importServerError}</span>
+              </div>
+            )}
+
+            {/* Summary Toolbar */}
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 p-3 rounded-xl bg-slate-50 border border-slate-200/80 text-xs">
+              <div className="flex items-center space-x-3 flex-wrap gap-y-2">
+                <span className="font-semibold text-slate-700 whitespace-nowrap">
+                  Target Account:
+                </span>
+                <select
+                  value={importAccountId}
+                  onChange={(e) => setImportAccountId(e.target.value)}
+                  className="rounded-lg border border-slate-300 px-2.5 py-1 text-xs text-slate-900 bg-white font-medium focus:outline-none focus:border-emerald-500 cursor-pointer"
+                >
+                  {accounts.map((acc) => (
+                    <option key={acc.id} value={String(acc.id)}>
+                      {acc.name}
+                    </option>
+                  ))}
+                  {detectedAccountInfo?.suggested_account_name && (
+                    <option value={`__NEW_ACC__:${detectedAccountInfo.suggested_account_name}`}>
+                      ✨ Auto-create &quot;{detectedAccountInfo.suggested_account_name}&quot;
+                    </option>
+                  )}
+                  {accounts.length === 0 && !detectedAccountInfo && (
+                    <option value="__AUTO_DETECT__">
+                      ✨ Auto-create Primary Account
+                    </option>
+                  )}
+                </select>
+                <span className="text-slate-400">•</span>
+                <span className="text-slate-600">
+                  Selected: <strong className="text-emerald-700">{extractedTransactions.filter((t) => t.selected).length}</strong> of {extractedTransactions.length}
+                </span>
+              </div>
+
+              <div className="flex items-center space-x-2">
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  onClick={() =>
+                    handleToggleSelectAll(
+                      extractedTransactions.filter((t) => t.selected).length !== extractedTransactions.length
+                    )
+                  }
+                  className="text-xs py-1 px-2.5"
+                >
+                  {extractedTransactions.filter((t) => t.selected).length === extractedTransactions.length
+                    ? "Deselect All"
+                    : "Select All"}
+                </Button>
+              </div>
+            </div>
+
+            {/* Editable Transactions Review Table */}
+            <div className="overflow-x-auto max-h-[50vh] border border-slate-200 rounded-xl">
+              <table className="w-full text-left border-collapse text-xs">
+                <thead className="bg-slate-50 sticky top-0 z-10 border-b border-slate-200 text-[11px] font-bold text-slate-500 uppercase tracking-wider">
+                  <tr>
+                    <th className="py-2.5 px-3 text-center w-10">Use</th>
+                    <th className="py-2.5 px-3 w-32">Date</th>
+                    <th className="py-2.5 px-3 w-28">Type</th>
+                    <th className="py-2.5 px-3">Merchant / Payee</th>
+                    <th className="py-2.5 px-3 w-44">Category</th>
+                    <th className="py-2.5 px-3 text-right w-32">Amount</th>
+                    <th className="py-2.5 px-3 text-center w-12">Action</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-100 bg-white">
+                  {extractedTransactions.map((tx) => {
+                    const isExpense = tx.transaction_type === "EXPENSE";
+                    const matchingCategories = categories.filter((c) => c.category_type === tx.transaction_type);
+
+                    return (
+                      <tr
+                        key={tx.tempId}
+                        className={`transition-colors ${
+                          tx.selected ? "hover:bg-slate-50/80" : "opacity-40 bg-slate-50/40"
+                        }`}
+                      >
+                        {/* Checkbox */}
+                        <td className="py-2 px-3 text-center">
+                          <input
+                            type="checkbox"
+                            checked={tx.selected}
+                            onChange={() => handleToggleRowSelect(tx.tempId)}
+                            className="rounded border-slate-300 text-emerald-600 focus:ring-emerald-500 cursor-pointer w-4 h-4"
+                          />
+                        </td>
+
+                        {/* Date */}
+                        <td className="py-2 px-3">
+                          <input
+                            type="date"
+                            value={tx.transaction_date}
+                            onChange={(e) =>
+                              handleUpdateExtractedField(tx.tempId, "transaction_date", e.target.value)
+                            }
+                            className="w-full rounded-lg border border-slate-200 px-2 py-1 text-xs text-slate-800 bg-white focus:outline-none focus:border-emerald-500"
+                          />
+                        </td>
+
+                        {/* Type Toggle */}
+                        <td className="py-2 px-3">
+                          <button
+                            type="button"
+                            onClick={() => {
+                              const newType = isExpense ? "INCOME" : "EXPENSE";
+                              handleUpdateExtractedField(tx.tempId, "transaction_type", newType);
+                              // Reset category if not matching new type
+                              const match = categories.find((c) => c.category_type === newType);
+                              handleUpdateExtractedField(tx.tempId, "category_id", match ? String(match.id) : "");
+                            }}
+                            className={`px-2 py-1 rounded-md text-[10px] font-bold tracking-wider uppercase cursor-pointer transition-colors ${
+                              isExpense
+                                ? "bg-rose-50 text-rose-700 border border-rose-200"
+                                : "bg-emerald-50 text-emerald-700 border border-emerald-200"
+                            }`}
+                          >
+                            {isExpense ? "Expense" : "Income"}
+                          </button>
+                        </td>
+
+                        {/* Merchant */}
+                        <td className="py-2 px-3">
+                          <input
+                            type="text"
+                            value={tx.merchant}
+                            onChange={(e) =>
+                              handleUpdateExtractedField(tx.tempId, "merchant", e.target.value)
+                            }
+                            placeholder="Merchant / Payee"
+                            className="w-full rounded-lg border border-slate-200 px-2 py-1 text-xs text-slate-900 bg-white font-medium focus:outline-none focus:border-emerald-500"
+                          />
+                        </td>
+
+                        {/* Category */}
+                        <td className="py-2 px-3">
+                          {(() => {
+                            const isNew = !tx.category_id && tx.category_name;
+                            const selectVal = tx.category_id
+                              ? String(tx.category_id)
+                              : isNew
+                              ? `__NEW__:${tx.category_name}`
+                              : "";
+
+                            return (
+                              <div className="space-y-1">
+                                <select
+                                  value={selectVal}
+                                  onChange={(e) => handleCategorySelectChange(tx.tempId, e.target.value)}
+                                  className="w-full rounded-lg border border-slate-200 px-2 py-1 text-xs text-slate-800 bg-white focus:outline-none focus:border-emerald-500 cursor-pointer"
+                                >
+                                  <option value="">Uncategorized</option>
+                                  {isNew && (
+                                    <option value={`__NEW__:${tx.category_name}`}>
+                                      ✨ Auto-create &quot;{tx.category_name}&quot;
+                                    </option>
+                                  )}
+                                  {matchingCategories.map((c) => (
+                                    <option key={c.id} value={String(c.id)}>
+                                      {c.name}
+                                    </option>
+                                  ))}
+                                </select>
+                                {isNew && (
+                                  <span className="inline-flex items-center text-[10px] text-emerald-600 font-semibold px-1.5 py-0.5 rounded bg-emerald-50 border border-emerald-100">
+                                    Auto-created on import
+                                  </span>
+                                )}
+                              </div>
+                            );
+                          })()}
+                        </td>
+
+                        {/* Amount */}
+                        <td className="py-2 px-3 text-right">
+                          <input
+                            type="number"
+                            step="0.01"
+                            value={tx.amount}
+                            onChange={(e) =>
+                              handleUpdateExtractedField(tx.tempId, "amount", e.target.value)
+                            }
+                            className="w-full text-right rounded-lg border border-slate-200 px-2 py-1 text-xs font-bold text-slate-900 bg-white focus:outline-none focus:border-emerald-500"
+                          />
+                        </td>
+
+                        {/* Delete Row */}
+                        <td className="py-2 px-3 text-center">
+                          <button
+                            type="button"
+                            onClick={() => handleRemoveExtractedRow(tx.tempId)}
+                            className="text-slate-400 hover:text-rose-600 p-1 rounded hover:bg-rose-50 transition-colors"
+                            title="Remove transaction"
+                          >
+                            <Trash2 className="w-3.5 h-3.5" />
+                          </button>
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+
+            <div className="pt-4 flex items-center justify-between border-t border-slate-100">
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                onClick={() => setImportStep(1)}
+                disabled={isBulkImporting}
+              >
+                ← Back to Upload
+              </Button>
+
+              <div className="flex items-center space-x-2">
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  onClick={() => setIsImportModalOpen(false)}
+                  disabled={isBulkImporting}
+                >
+                  Cancel
+                </Button>
+                <Button
+                  type="button"
+                  variant="primary"
+                  size="sm"
+                  onClick={handleConfirmBulkImport}
+                  isLoading={isBulkImporting}
+                  disabled={extractedTransactions.filter((t) => t.selected).length === 0}
+                  className="bg-emerald-600 hover:bg-emerald-700"
+                >
+                  <span>
+                    Import {extractedTransactions.filter((t) => t.selected).length} Transaction(s)
+                  </span>
+                </Button>
+              </div>
+            </div>
+          </div>
+        )}
       </Modal>
     </div>
   );

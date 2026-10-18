@@ -6,6 +6,7 @@ const {
   getTransactions,
   getTransactionSummary,
   createTransaction,
+  createBulkTransactions,
   updateTransaction,
   deleteTransaction,
 } = require("../controllers/transactionController");
@@ -17,6 +18,7 @@ router.use(authenticateToken);
 router.get("/summary", getTransactionSummary);
 router.get("/", getTransactions);
 router.post("/", createTransaction);
+router.post("/bulk", createBulkTransactions);
 router.put("/:id", updateTransaction);
 router.delete("/:id", deleteTransaction);
 

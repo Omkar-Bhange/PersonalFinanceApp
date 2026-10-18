@@ -9,7 +9,6 @@
     "test:db": "node src/test-db.js",
     "db:migrate": "node src/utils/run-migration.js"
   },
-
   "keywords": [],
   "author": "",
   "license": "ISC",
@@ -22,6 +21,8 @@
     "express-rate-limit": "^8.7.1",
     "helmet": "^8.3.0",
     "jsonwebtoken": "^9.0.3",
+    "multer": "^2.4.0",
+    "pdf-parse": "^2.4.5",
     "pg": "^8.23.1",
     "zod": "^4.6.5"
   },

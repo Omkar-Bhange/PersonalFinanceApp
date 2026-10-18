@@ -10,6 +10,7 @@ const userRoutes = require("./routes/userRoutes");
 const accountRoutes = require("./routes/accountRoutes");
 const transactionRoutes = require("./routes/transactionRoutes");
 const lendingRoutes = require("./routes/lendingRoutes");
+const aiRoutes = require("./routes/aiRoutes");
 
 const app = express();
 
@@ -30,7 +31,7 @@ app.use(
   })
 );
 
-app.use(express.json({ limit: "100kb" }));
+app.use(express.json({ limit: "10mb" }));
 
 
 app.get("/", (req, res) => {
@@ -47,6 +48,7 @@ app.use("/api/v1/users", userRoutes);
 app.use("/api/v1/accounts", accountRoutes);
 app.use("/api/v1/transactions", transactionRoutes);
 app.use("/api/v1/lending", lendingRoutes);
+app.use("/api/v1/ai", aiRoutes);
 
 // 404 Not Found Handler
 app.use((req, res) => {

@@ -103,6 +103,70 @@ async function createTransaction(req, res) {
   }
 }
 
+const bulkSchema = z.object({
+  account_id: z.coerce.number().int().positive().nullable().optional(),
+  account_name: z.string().trim().max(100).nullable().optional(),
+  transactions: z
+    .array(
+      z.object({
+        category_id: z.coerce.number().int().positive().nullable().optional(),
+        category_name: z.string().trim().max(100).nullable().optional(),
+        transaction_type: z.enum(["INCOME", "EXPENSE"]).default("EXPENSE"),
+        amount: z.coerce.number().finite().positive().max(999999999999.99),
+        transaction_date: z.iso.date().optional(),
+        description: z.string().trim().max(500).nullable().optional(),
+        merchant: z.string().trim().max(150).nullable().optional(),
+        notes: z.string().max(5000).nullable().optional(),
+      })
+    )
+    .min(1, "At least one transaction is required"),
+}).refine(
+  (data) => Boolean(data.account_id || data.account_name),
+  {
+    message: "Either account_id or account_name must be provided",
+    path: ["account_id"],
+  }
+);
+
+async function createBulkTransactions(req, res) {
+  const validation = bulkSchema.safeParse(req.body);
+
+  if (!validation.success) {
+    return res.status(400).json({
+      success: false,
+      message: "Invalid bulk transaction data",
+      errors: validation.error.flatten().fieldErrors,
+    });
+  }
+
+  try {
+    const data = await transactionService.createBulkTransactions(
+      req.user.id,
+      validation.data
+    );
+
+    return res.status(201).json({
+      success: true,
+      message: `Successfully imported ${data.length} transaction(s)`,
+      count: data.length,
+      data,
+    });
+  } catch (error) {
+    if (error.statusCode === 400 || error.code === "INVALID_ACCOUNT") {
+      return res.status(400).json({
+        success: false,
+        message: error.message || "Account does not exist or is not accessible",
+      });
+    }
+
+    console.error("Bulk create transactions failed:", error.message);
+    return res.status(500).json({
+      success: false,
+      message: "Unable to import transactions",
+    });
+  }
+}
+
 const updateSchema = z.object({
   account_id: z.coerce.number().int().positive(),
   category_id: z.coerce.number().int().positive().nullable().optional(),
@@ -263,6 +327,7 @@ module.exports = {
   getTransactions,
   getTransactionSummary,
   createTransaction,
+  createBulkTransactions,
   updateTransaction,
   deleteTransaction,
 };

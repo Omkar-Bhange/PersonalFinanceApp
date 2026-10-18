@@ -78,6 +78,141 @@ async function createTransaction(userId, data) {
   return result.rows[0];
 }
 
+async function createBulkTransactions(userId, { account_id, account_name, transactions }) {
+  if (!transactions || !transactions.length) {
+    return [];
+  }
+
+  const client = await pool.connect();
+  try {
+    await client.query("BEGIN");
+
+    let targetAccountId = account_id ? Number(account_id) : null;
+
+    // 1. If account_id provided, verify ownership
+    if (targetAccountId) {
+      const accountCheck = await client.query(
+        `SELECT id FROM accounts WHERE id = $1 AND user_id = $2`,
+        [targetAccountId, userId]
+      );
+
+      if (accountCheck.rowCount === 0) {
+        const error = new Error("Account does not exist or is not accessible");
+        error.statusCode = 400;
+        error.code = "INVALID_ACCOUNT";
+        throw error;
+      }
+    } else if (account_name && typeof account_name === "string" && account_name.trim()) {
+      // Find or auto-create account
+      const cleanAccName = account_name.trim();
+      const existingAcc = await client.query(
+        `SELECT id FROM accounts WHERE user_id = $1 AND LOWER(TRIM(name)) = LOWER($2) LIMIT 1`,
+        [userId, cleanAccName]
+      );
+
+      if (existingAcc.rowCount > 0) {
+        targetAccountId = existingAcc.rows[0].id;
+      } else {
+        const newAcc = await client.query(
+          `INSERT INTO accounts (user_id, name, account_type, opening_balance)
+           VALUES ($1, $2, 'SAVINGS', 0)
+           RETURNING id`,
+          [userId, cleanAccName]
+        );
+        targetAccountId = newAcc.rows[0].id;
+      }
+    } else {
+      const error = new Error("Please provide a target account_id or account_name");
+      error.statusCode = 400;
+      throw error;
+    }
+
+    // Cache of category name -> id to avoid redundant queries during bulk insert
+    const categoryCache = new Map();
+
+    const inserted = [];
+
+    for (const tx of transactions) {
+      let validCategoryId = null;
+
+      if (tx.category_id && Number(tx.category_id) > 0) {
+        const catCheck = await client.query(
+          `SELECT id FROM categories WHERE id = $1 AND (user_id IS NULL OR user_id = $2)`,
+          [tx.category_id, userId]
+        );
+        if (catCheck.rowCount > 0) {
+          validCategoryId = tx.category_id;
+        }
+      }
+
+      // If category_id not resolved, check or auto-create via category_name
+      if (!validCategoryId && tx.category_name && typeof tx.category_name === "string" && tx.category_name.trim()) {
+        const cleanCatName = tx.category_name.trim();
+        const cacheKey = `${cleanCatName.toLowerCase()}_${tx.transaction_type || "EXPENSE"}`;
+
+        if (categoryCache.has(cacheKey)) {
+          validCategoryId = categoryCache.get(cacheKey);
+        } else {
+          const catCheck = await client.query(
+            `SELECT id FROM categories
+             WHERE (user_id IS NULL OR user_id = $1)
+               AND LOWER(TRIM(name)) = LOWER($2)
+             LIMIT 1`,
+            [userId, cleanCatName]
+          );
+
+          if (catCheck.rowCount > 0) {
+            validCategoryId = catCheck.rows[0].id;
+          } else {
+            // Auto-create category for user
+            const catColor = (tx.transaction_type === "INCOME") ? "#10b981" : "#0284c7";
+            const newCat = await client.query(
+              `INSERT INTO categories (user_id, name, category_type, icon, color)
+               VALUES ($1, $2, $3, 'tag', $4)
+               RETURNING id`,
+              [userId, cleanCatName, tx.transaction_type || "EXPENSE", catColor]
+            );
+            validCategoryId = newCat.rows[0].id;
+          }
+
+          categoryCache.set(cacheKey, validCategoryId);
+        }
+      }
+
+      const res = await client.query(
+        `INSERT INTO transactions
+           (user_id, account_id, category_id, transaction_type,
+            amount, transaction_date, description, merchant, notes)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+         RETURNING id, account_id, category_id, transaction_type,
+                   amount, transaction_date, description, merchant,
+                   notes, created_at`,
+        [
+          userId,
+          targetAccountId,
+          validCategoryId,
+          tx.transaction_type || "EXPENSE",
+          tx.amount,
+          tx.transaction_date || new Date().toISOString().slice(0, 10),
+          tx.description ?? tx.raw_narration ?? null,
+          tx.merchant ?? null,
+          tx.notes ?? null,
+        ]
+      );
+
+      inserted.push(res.rows[0]);
+    }
+
+    await client.query("COMMIT");
+    return inserted;
+  } catch (err) {
+    await client.query("ROLLBACK");
+    throw err;
+  } finally {
+    client.release();
+  }
+}
+
 async function updateTransaction(userId, transactionId, data) {
   // 1. Verify account ownership
   const accountCheck = await pool.query(
@@ -332,6 +467,7 @@ async function getMonthlySummary(userId, monthStr) {
 module.exports = {
   getTransactions,
   createTransaction,
+  createBulkTransactions,
   updateTransaction,
   deleteTransaction,
   getMonthlySummary,
