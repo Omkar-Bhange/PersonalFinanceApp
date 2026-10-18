@@ -351,3 +351,4 @@ export function TelegramConnectModal({ isOpen, onClose }) {
     </Modal>
   );
 }
+

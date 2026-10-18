@@ -24,3 +24,4 @@ CREATE INDEX IF NOT EXISTS idx_telegram_users_user_id ON telegram_users(user_id)
 CREATE INDEX IF NOT EXISTS idx_telegram_link_codes_code ON telegram_link_codes(code);
 
 COMMIT;
+
